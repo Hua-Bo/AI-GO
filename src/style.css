@@ -1,0 +1,13 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+    margin: 0;
+}
+
+/* 地图应用一般为单页面全屏 */
+html, body, #app {
+    height: 100%;
+    width: 100%;
+}
