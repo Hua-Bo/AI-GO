@@ -136,6 +136,14 @@ const routes: RouteRecordRaw[] = [
     redirect: '/test28',
   },
   {
+    path: '/test29',
+    component: () => import('@/views/testDemo/test29.vue'),
+  },
+  {
+    path: '/lobelia-polar',
+    redirect: '/test29',
+  },
+  {
     path: '/test27',
     component: () => import('@/views/testDemo/test27.vue'),
   },
