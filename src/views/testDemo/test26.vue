@@ -5,7 +5,7 @@
   详细说明见同目录：test26_前端使用手册.md
 -->
 <script setup lang="ts">
-import ColorBar from '@/components/ColorBar.vue'
+import mapboxGL from 'mapbox-gl'
 
 // =============================================================================
 // 一、服务地址（开发环境走 Vite 代理，避免浏览器 CORS 拦截瓦片请求）
@@ -64,10 +64,21 @@ interface DataSourceOption {
 interface LayerMeta {
   scaleRange: [number, number]
   units: string
+  palettes?: string[]
+  defaultPalette?: string
   nearestTimeIso?: string
   datesWithData?: Record<string, Record<string, number[]>>
   supportsProfiles?: boolean
 }
+
+const COMMON_PALETTE_OPTIONS = [
+  { label: '默认 default', value: 'default' },
+  { label: '红蓝发散 div-RdBu', value: 'div-RdBu' },
+  { label: '光谱 div-Spectral', value: 'div-Spectral' },
+  { label: '橙红顺序 seq-OrRd', value: 'seq-OrRd' },
+  { label: '蓝色顺序 seq-Blues', value: 'seq-Blues' },
+  { label: '绿色顺序 seq-Greens', value: 'seq-Greens' },
+]
 
 // =============================================================================
 // 三、投影配置
@@ -106,14 +117,27 @@ const DATA_SOURCE_LABELS: Record<string, string> = {
 const GEBCO_LAYER = 'gebco/elevation'
 const IBCAO_LAYER = 'cite:ibcao_3413'
 
-/** EPSG:3413 bbox 四角 → WGS84，供 Mapbox image 源贴图（gdaltransform 预计算） */
+/**
+ * EPSG:3413 完美贴图方案（Mapbox image 源）
+ * 1. WMS 用原生 EPSG:3413 出图（立体投影，与数据一致）
+ * 2. bbox 四角用 gdaltransform 转为 WGS84，作为 coordinates
+ * 3. Mapbox 用透视变换将菱形图贴到 Mercator 底图上
+ *
+ * 预计算命令：
+ *   gdaltransform -s_srs EPSG:3413 -t_srs EPSG:4326
+ * 投影中心 (0,0) → 北极点约 [-45, 90]
+ */
 const IBCAO_3413_BBOX = '-4060480,-4060480,4060480,4060480'
+const IBCAO_3413_POLE: [number, number] = [-45, 90]
 const IBCAO_3413_COORDS: LngLatQuad = [
-  [-180, 40.2458509956064], // 投影左上 (-4060480, 4060480)
-  [90, 40.2458509956064],   // 投影右上 (4060480, 4060480)
-  [0, 40.2458509956064],    // 投影右下 (4060480, -4060480)
-  [-90, 40.2458509956064],  // 投影左下 (-4060480, -4060480)
+  [-180, 40.2458509956064], // 像素左上 ↔ 投影 (-4060480,  4060480)
+  [90, 40.2458509956064],   // 像素右上 ↔ 投影 ( 4060480,  4060480)
+  [0, 40.2458509956064],    // 像素右下 ↔ 投影 ( 4060480, -4060480)
+  [-90, 40.2458509956064],  // 像素左下 ↔ 投影 (-4060480, -4060480)
 ]
+
+/** 天地图底图图层 ID（隐藏后仅显示 IBCAO，避免 Mercator 底图干扰） */
+const BASE_MAP_LAYER_IDS = ['tdtVecLayer', 'tdtCvaLayer', 'tdtImgLayer', 'tdtCiaLayer']
 
 /** 切换数据源时优先选中的图层 */
 const PREFERRED_LAYER: Record<string, string> = {
@@ -142,10 +166,10 @@ const STATIC_LAYERS: LayerOption[] = [
     wmsStyle: 'ibcao_bathymetry',
     imageSrs: 'EPSG:3413',
     imageBbox: IBCAO_3413_BBOX,
-    imageSize: [800, 800],
+    imageSize: [1024, 1024],
     imageCoords: IBCAO_3413_COORDS,
     forceImageOverlay: true,
-    viewCenter: [0, 75],
+    viewCenter: IBCAO_3413_POLE,
     viewZoom: 2,
   },
 ]
@@ -174,106 +198,42 @@ const showElevation = ref(false)
 // =============================================================================
 // 六、配色状态（ncWMS 图层）
 // colorMin/colorMax → WMS 参数 colorscalerange
-// ColorBar 仅作图例展示，与 ncWMS palette 近似对应
+// 图例使用 GetLegendGraphic，与地图瓦片配色一致
 // =============================================================================
 const colorMin = ref(0)
 const colorMax = ref(8)
 const dataMin = ref<number | null>(null)
 const dataMax = ref<number | null>(null)
 const currentUnit = ref('m')
+/** ncWMS 实际传给服务端的配色（改后需点「应用配色」或触发 refreshLayer） */
+const selectedPalette = ref('default')
+const numColorBands = ref(20)
+const logScale = ref(false)
+const paletteOptions = ref(COMMON_PALETTE_OPTIONS)
 /** 递增可强制 Mapbox 重新请求瓦片（绕过缓存） */
 const layerVersion = ref(0)
 const useImageSource = ref(false)
-
-/** 海浪类图层 ColorBar 渐变色（前端图例用） */
-const WAVE_PALETTE = [
-  '#081d58', '#253494', '#225ea8', '#1d91c0', '#41b6c4',
-  '#7fcdbb', '#c7e9b4', '#fed976', '#feb24c', '#fd8d3c', '#f03b20', '#bd0026',
-]
-
-/** 地形类图层 ColorBar 渐变色（前端图例用） */
-const BATHYMETRY_PALETTE = [
-  '#08306b', '#08519c', '#2171b5', '#4292c6', '#6baed6',
-  '#9ecae1', '#c6dbef', '#f7f7f7', '#fdd0a2', '#fdae6b', '#e6550d', '#a63603',
-]
 
 const currentLayer = computed(() =>
   allLayers.value.find((layer) => layer.value === selectedFeature.value)
   || featureOptions.value.find((layer) => layer.value === selectedFeature.value),
 )
 
-const isGebcoLayer = computed(() => selectedFeature.value.startsWith('gebco/'))
+const isIbcaoLayer = computed(() => selectedFeature.value === IBCAO_LAYER)
 const isGeoServerLayer = computed(() => currentLayer.value?.provider === 'geoserver')
-/** GeoServer 图层由服务端 SLD 配色，不显示前端 ColorBar */
-const showColorBar = computed(() => !isGeoServerLayer.value)
-const activePalette = computed(() => (isGebcoLayer.value ? BATHYMETRY_PALETTE : WAVE_PALETTE))
-/** 传给 ncWMS GetMap 的 palette 参数 */
-const wmsPalette = computed(() => (isGebcoLayer.value ? GEBCO_PALETTE : 'default'))
+const arcticImageMode = computed(() => isIbcaoLayer.value)
+/** GeoServer 图层由服务端 SLD 配色，不提供 ncWMS 配色面板 */
+const showNcwmsColorConfig = computed(() => !isGeoServerLayer.value)
+const showColorBar = computed(() => showNcwmsColorConfig.value)
 
-const COLOR_BAR_MAX_TICKS = 7
+/** 与地图配色一致的 ncWMS 服务端图例 */
+const legendUrl = computed(() => {
+  if (!showNcwmsColorConfig.value || !selectedFeature.value) return ''
+  const log = logScale.value ? '&LOGSCALE=true' : ''
+  return `${NCWMS_BASE}?service=WMS&version=1.3.0&request=GetLegendGraphic&layers=${selectedFeature.value}&styles=raster/${selectedPalette.value}&colorscalerange=${colorscalerange.value}&NUMCOLORBANDS=${numColorBands.value}${log}&width=24&height=160&format=image/png&_v=${layerVersion.value}`
+})
 
-// =============================================================================
-// 七、ColorBar 刻度与色标计算（仅 UI 图例，不影响 WMS 渲染）
-// =============================================================================
-function calcDecimalPlaces(min: number, max: number, tickCount = COLOR_BAR_MAX_TICKS): number {
-  const step = Math.abs(max - min) / Math.max(tickCount - 1, 1)
-  if (step === 0) return 2
-  if (step >= 100) return 0
-  if (step >= 10) return 0
-  if (step >= 1) return 1
-  if (step >= 0.1) return 1
-  if (step >= 0.01) return 2
-  if (step >= 0.001) return 3
-  return 4
-}
-
-function formatTickValue(value: number, min: number, max: number): string {
-  const decimals = calcDecimalPlaces(min, max)
-  return Number(value.toFixed(decimals)).toString()
-}
-
-function niceStep(range: number, targetTicks: number): number {
-  const rough = range / Math.max(targetTicks - 1, 1)
-  const pow = 10 ** Math.floor(Math.log10(rough))
-  const norm = rough / pow
-  if (norm <= 1) return pow
-  if (norm <= 2) return 2 * pow
-  if (norm <= 5) return 5 * pow
-  return 10 * pow
-}
-
-function buildNiceTicks(min: number, max: number, maxTicks = COLOR_BAR_MAX_TICKS): number[] {
-  if (min === max) return [min]
-  const range = max - min
-  const step = niceStep(range, maxTicks)
-  const ticks = new Set<number>([min, max])
-  let v = Math.ceil(min / step) * step
-  while (v < max) {
-    if (v > min) ticks.add(Number(v.toFixed(10)))
-    v += step
-  }
-  const sorted = [...ticks].sort((a, b) => a - b)
-  if (sorted.length <= maxTicks) return sorted
-  const result = [sorted[0]]
-  const inner = sorted.slice(1, -1)
-  const gap = Math.ceil(inner.length / (maxTicks - 2))
-  inner.forEach((tick, i) => {
-    if (i % gap === 0 && result.length < maxTicks - 1) result.push(tick)
-  })
-  result.push(sorted[sorted.length - 1])
-  return result
-}
-
-function buildColorBarStops(min: number, max: number, palette = WAVE_PALETTE): (number | string)[][] {
-  return buildNiceTicks(min, max).map((value) => {
-    const t = max === min ? 0 : (value - min) / (max - min)
-    const colorIndex = Math.round(t * (palette.length - 1))
-    return [formatTickValue(value, min, max), palette[colorIndex]]
-  })
-}
-
-const colorBarStops = computed(() => buildColorBarStops(colorMin.value, colorMax.value, activePalette.value))
-/** 核心：拼入 ncWMS GetMap 的 colorscalerange 参数，格式 "min,max" */
+/** 拼入 ncWMS GetMap 的 colorscalerange 参数，格式 "min,max" */
 const colorscalerange = computed(() => `${colorMin.value},${colorMax.value}`)
 
 // =============================================================================
@@ -386,9 +346,9 @@ function applyScaleRange(min: number, max: number, unit: string) {
 /**
  * ncWMS GetMap 参数
  * 配色三要素：
- *   colorscalerange — 数值范围，如 "0,8"
- *   palette         — 色板名，如 "default"、"div-RdBu"
- *   NUMCOLORBANDS   — 色带分段数，越大越平滑
+ *   styles=raster/{palette} — 本实例色板必须写在 styles 里，单独 palette= 无效
+ *   colorscalerange         — 数值范围，如 "0,8"
+ *   NUMCOLORBANDS           — 色带分段数，越大越平滑
  * 可选扩展：LOGSCALE、ABOVEMAXCOLOR、BELOWMINCOLOR（见使用手册）
  */
 function buildNcwmsParams(layer: string) {
@@ -397,13 +357,13 @@ function buildNcwmsParams(layer: string) {
     'version=1.3.0',
     'request=GetMap',
     `layers=${layer}`,
-    'styles=raster/default',
+    `styles=raster/${selectedPalette.value}`,
     'format=image/png',
     'transparent=true',
     `colorscalerange=${colorscalerange.value}`,
-    `palette=${wmsPalette.value}`,
-    'NUMCOLORBANDS=20',
+    `NUMCOLORBANDS=${numColorBands.value}`,
   ]
+  if (logScale.value) parts.push('LOGSCALE=true')
   if (showTime.value && selectedTime.value) parts.push(`time=${encodeURIComponent(selectedTime.value)}`)
   if (showElevation.value && selectedElevation.value) parts.push(`elevation=${selectedElevation.value}`)
   return parts
@@ -460,6 +420,36 @@ function getImageCoords(layer: LayerOption): LngLatQuad {
   return POLAR_COORDS[selectedProjection.value]
 }
 
+/** 隐藏/显示天地图底图（IBCAO 模式建议隐藏，只保留立体投影贴图） */
+function setBaseMapVisible(visible: boolean) {
+  if (!map.value) return
+  BASE_MAP_LAYER_IDS.forEach((id) => {
+    if (map.value?.getLayer(id)) {
+      map.value.setLayoutProperty(id, 'visibility', visible ? 'visible' : 'none')
+    }
+  })
+}
+
+/**
+ * 将视野缩放到 IBCAO 菱形贴图范围（含北极点）
+ * 使 EPSG:3413 出图与 Mapbox 视图对齐
+ */
+function fitIbcaoView(coords: LngLatQuad = IBCAO_3413_COORDS) {
+  if (!map.value) return
+  const bounds = new mapboxGL.LngLatBounds(coords[0], coords[0])
+  coords.forEach((c) => bounds.extend(c as [number, number]))
+  bounds.extend(IBCAO_3413_POLE)
+  map.value.fitBounds(bounds, { padding: 24, duration: 800, maxZoom: 4 })
+}
+
+function applyArcticImageMode(layer: LayerOption | undefined) {
+  const active = layer?.value === IBCAO_LAYER
+  setBaseMapVisible(!active)
+  if (active) {
+    fitIbcaoView(layer.imageCoords)
+  }
+}
+
 // =============================================================================
 // 十、Mapbox 图层渲染
 // =============================================================================
@@ -498,11 +488,16 @@ function refreshLayer() {
     })
   }
 
+  const isArctic = layer.value === IBCAO_LAYER
   map.value.addLayer({
     id: LAYER_ID,
     type: 'raster',
     source: SOURCE_ID,
-    paint: { 'raster-opacity': 0.85 },
+    paint: {
+      'raster-opacity': isArctic ? 1 : 0.85,
+      'raster-fade-duration': 0,
+      'raster-resampling': 'linear',
+    },
   })
 }
 
@@ -531,6 +526,24 @@ function applyLayerScale(layerName: string, meta: LayerMeta | null) {
   }
 }
 
+function applyLayerPalette(layerName: string, meta: LayerMeta | null) {
+  if (meta?.palettes?.length) {
+    paletteOptions.value = meta.palettes.map((name) => ({ label: name, value: name }))
+  } else {
+    paletteOptions.value = COMMON_PALETTE_OPTIONS
+  }
+  if (layerName.startsWith('gebco/')) {
+    selectedPalette.value = GEBCO_PALETTE
+    return
+  }
+  selectedPalette.value = meta?.defaultPalette || 'default'
+}
+
+/** 应用配色：重新请求 ncWMS 瓦片，地图颜色才会变化 */
+function applyColorConfig() {
+  refreshLayer()
+}
+
 async function onFeatureChange(layerName: string) {
   loading.value = true
   const feature = featureOptions.value.find((f) => f.value === layerName)
@@ -539,12 +552,17 @@ async function onFeatureChange(layerName: string) {
   if (feature?.provider !== 'geoserver') {
     const meta = await fetchLayerMeta(layerName, feature?.provider)
     applyLayerScale(layerName, meta)
+    applyLayerPalette(layerName, meta)
+    numColorBands.value = 20
+    logScale.value = false
     if (!selectedTime.value && meta?.nearestTimeIso) {
       selectedTime.value = meta.nearestTimeIso
     }
   }
 
-  if (feature?.viewCenter && map.value) {
+  applyArcticImageMode(feature)
+
+  if (feature?.value !== IBCAO_LAYER && feature?.viewCenter && map.value) {
     map.value.flyTo({
       center: feature.viewCenter,
       zoom: feature.viewZoom ?? map.value.getZoom(),
@@ -571,9 +589,13 @@ function onFilterChange() {
 }
 
 function onProjectionChange(crs: string) {
-  const opt = projectionOptions.find((p) => p.value === crs)
-  if (opt && map.value) {
-    map.value.flyTo({ center: opt.center, zoom: opt.zoom, duration: 800 })
+  if (isIbcaoLayer.value) {
+    fitIbcaoView()
+  } else {
+    const opt = projectionOptions.find((p) => p.value === crs)
+    if (opt && map.value) {
+      map.value.flyTo({ center: opt.center, zoom: opt.zoom, duration: 800 })
+    }
   }
   refreshLayer()
 }
@@ -614,7 +636,7 @@ onMounted(() => {
 <template>
   <div class="page">
     <!-- Mapbox 地图容器 -->
-    <div id="ncwms-map" class="map" />
+    <div id="ncwms-map" class="map" :class="{ 'arctic-image-mode': arcticImageMode }" />
 
     <!-- 左侧可视化设置面板 -->
     <div class="settings-panel" :class="{ collapsed: panelCollapsed }">
@@ -699,11 +721,59 @@ onMounted(() => {
             />
           </el-select>
         </div>
+
+        <!-- ncWMS 配色：修改后必须点「应用配色」才会更新地图 -->
+        <template v-if="showNcwmsColorConfig">
+          <div class="form-divider">配色设置（ncWMS）</div>
+
+          <div class="form-item palette-hint">
+            <label>色板 palette</label>
+            <p class="hint-text">色板通过 WMS 参数 <code>styles=raster/色板名</code> 生效，改后请点「应用配色」</p>
+            <el-select v-model="selectedPalette" filterable placeholder="选择色板">
+              <el-option
+                v-for="item in paletteOptions"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </div>
+
+          <div class="form-item range-row">
+            <div class="range-field">
+              <label>最小值</label>
+              <el-input-number v-model="colorMin" :controls="false" class="range-input" />
+            </div>
+            <div class="range-field">
+              <label>最大值</label>
+              <el-input-number v-model="colorMax" :controls="false" class="range-input" />
+            </div>
+          </div>
+
+          <div class="form-item">
+            <label>色带分段 {{ numColorBands }}</label>
+            <el-slider v-model="numColorBands" :min="5" :max="250" :step="5" />
+          </div>
+
+          <div class="form-item checkbox-row">
+            <el-checkbox v-model="logScale">对数色标</el-checkbox>
+          </div>
+
+          <button type="button" class="apply-color-btn" @click="applyColorConfig">
+            应用配色
+          </button>
+        </template>
       </div>
     </div>
 
-    <!-- 右下角色标图例（ncWMS 图层；GeoServer 由服务端样式配色） -->
-    <ColorBar v-if="showColorBar" class="color-bar" :colors="colorBarStops" :unit="currentUnit" split />
+    <!-- 右下角：ncWMS 服务端图例（与地图瓦片配色一致） -->
+    <div v-if="showColorBar" class="legend-wrap">
+      <img v-if="legendUrl" :key="legendUrl" :src="legendUrl" class="legend-img" alt="色标图例">
+      <div class="legend-range">
+        <span>{{ colorMin }}{{ currentUnit ? ` ${currentUnit}` : '' }}</span>
+        <span>{{ colorMax }}{{ currentUnit ? ` ${currentUnit}` : '' }}</span>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -716,6 +786,10 @@ onMounted(() => {
 .map {
   width: 100%;
   height: 100%;
+}
+/* IBCAO 模式：背景色与 WMS 图透明区接近，菱形外角更自然 */
+.map.arctic-image-mode {
+  background: #b8cdb8;
 }
 .settings-panel {
   position: absolute;
@@ -771,14 +845,82 @@ onMounted(() => {
 .form-item :deep(.el-select) {
   width: 100%;
 }
-.color-bar {
+.form-divider {
+  margin: 12px 0 10px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+  font-size: 13px;
+  font-weight: 600;
+  color: #333;
+}
+.range-row {
+  display: flex;
+  gap: 10px;
+}
+.range-field {
+  flex: 1;
+}
+.range-field label {
+  display: block;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 4px;
+}
+.range-input {
+  width: 100%;
+}
+.checkbox-row {
+  margin-bottom: 8px;
+}
+.palette-hint .hint-text {
+  margin: 0 0 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: #888;
+}
+.palette-hint code {
+  font-size: 10px;
+  color: #666;
+}
+.apply-color-btn {
+  width: 100%;
+  padding: 8px 0;
+  border: none;
+  border-radius: 4px;
+  background: #409eff;
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+}
+.apply-color-btn:hover {
+  background: #66b1ff;
+}
+.legend-wrap {
   position: absolute;
   right: 24px;
   bottom: 32px;
-  left: 24px;
   z-index: 10;
-  max-width: 520px;
-  margin-left: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 6px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+.legend-img {
+  height: 160px;
+  width: 28px;
+  object-fit: fill;
+  border-radius: 2px;
+}
+.legend-range {
+  display: flex;
+  justify-content: space-between;
+  width: 100%;
+  font-size: 11px;
+  color: #444;
 }
 :deep(.mapboxgl-ctrl-logo) {
   display: none !important;

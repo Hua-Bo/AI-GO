@@ -108,6 +108,17 @@
     "initGrayLayerImage": "readonly",
     "hideGrayLayer": "readonly",
     "showGrayLayer": "readonly",
-    "createPulseDot": "readonly"
+    "createPulseDot": "readonly",
+    "RotatedImageOverlay": "readonly",
+    "rotatedImageOverlay": "readonly",
+    "getLeafletCrs": "readonly",
+    "getMapCrsMeta": "readonly",
+    "resolveMapCrsKey": "readonly",
+    "getProjectedBounds": "readonly",
+    "getWmsImageBbox": "readonly",
+    "normalizeProjection": "readonly",
+    "usesPolarImageMode": "readonly",
+    "ElMessage": "readonly",
+    "getProjectedViewBounds": "readonly"
   }
 }

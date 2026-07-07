@@ -5,6 +5,7 @@
 
   <!-- 通过 v-model 绑定可见性 -->
   <DataModal v-model="showModal" />
+  <img src="https://nine-confidential.obs.cn-north-4.myhuaweicloud.com/www-ninecosmos-com/disaster-prevention-1.png/disaster-prevention-1.png" alt="test16" />
 </template>
 
 <script setup lang="ts">

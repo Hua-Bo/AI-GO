@@ -128,6 +128,14 @@ const routes: RouteRecordRaw[] = [
     redirect: '/test26',
   },
   {
+    path: '/test28',
+    component: () => import('@/views/testDemo/test28.vue'),
+  },
+  {
+    path: '/ncwms-leaflet',
+    redirect: '/test28',
+  },
+  {
     path: '/test27',
     component: () => import('@/views/testDemo/test27.vue'),
   },

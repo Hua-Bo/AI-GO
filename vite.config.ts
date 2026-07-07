@@ -64,6 +64,9 @@ export default defineConfig({
       '@/': `${path.resolve(__dirname, 'src')}/`,
     },
   },
+  optimizeDeps: {
+    include: ['leaflet', 'proj4', 'proj4leaflet'],
+  },
   server: {
     proxy: {
       '/geoserver': {
@@ -71,8 +74,10 @@ export default defineConfig({
         changeOrigin: true,
       },
       '/ncwms2': {
-        target: 'http://192.168.1.17:8082',
+        // 公网 ncWMS：路径必须是大写 ncWMS2，小写 /ncwms2 会 404
+        target: 'http://58.215.121.62:8984',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ncwms2/i, '/ncWMS2'),
       },
     },
   },
