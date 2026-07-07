@@ -1,0 +1,89 @@
+/** AI 智能体工作台主题变量与 Element Plus 深色适配 */
+.ai-agent-page {
+  --agent-bg: #0f172a;
+  --agent-panel: #111827;
+  --agent-card: #1f2937;
+  --agent-card-light: #273449;
+  --agent-border: rgba(255, 255, 255, 0.08);
+  --agent-text: #f8fafc;
+  --agent-text-secondary: #94a3b8;
+  --agent-primary: #3b82f6;
+  --agent-success: #22c55e;
+  --agent-warning: #f59e0b;
+  --agent-danger: #ef4444;
+  --agent-header-h: 64px;
+  --agent-radius: 12px;
+  --agent-radius-sm: 8px;
+
+  --el-bg-color: var(--agent-card);
+  --el-bg-color-overlay: var(--agent-card);
+  --el-fill-color-blank: var(--agent-card-light);
+  --el-text-color-primary: var(--agent-text);
+  --el-text-color-regular: #cbd5e1;
+  --el-text-color-secondary: var(--agent-text-secondary);
+  --el-border-color: var(--agent-border);
+  --el-border-color-light: var(--agent-border);
+  --el-color-primary: var(--agent-primary);
+}
+
+.ai-agent-page :deep(.el-input__wrapper),
+.ai-agent-page :deep(.el-textarea__inner),
+.ai-agent-page :deep(.el-select__wrapper) {
+  background-color: var(--agent-card-light) !important;
+  box-shadow: 0 0 0 1px var(--agent-border) inset !important;
+  color: var(--agent-text) !important;
+}
+
+.ai-agent-page :deep(.el-input__wrapper:hover),
+.ai-agent-page :deep(.el-textarea__inner:hover),
+.ai-agent-page :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.35) inset !important;
+}
+
+.ai-agent-page :deep(.el-form-item__label) {
+  color: var(--agent-text-secondary) !important;
+  font-size: 12px;
+}
+
+.ai-agent-page :deep(.el-table) {
+  --el-table-bg-color: var(--agent-card);
+  --el-table-tr-bg-color: var(--agent-card);
+  --el-table-header-bg-color: var(--agent-card-light);
+  --el-table-row-hover-bg-color: var(--agent-card-light);
+  --el-table-border-color: var(--agent-border);
+  --el-table-text-color: var(--agent-text);
+  --el-table-header-text-color: var(--agent-text-secondary);
+}
+
+.ai-agent-page :deep(.el-tabs__item) {
+  color: var(--agent-text-secondary);
+}
+
+.ai-agent-page :deep(.el-tabs__item.is-active) {
+  color: var(--agent-primary);
+}
+
+.ai-agent-page :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--agent-border);
+}
+
+.ai-agent-page :deep(.el-button) {
+  --el-button-bg-color: var(--agent-card-light);
+  --el-button-border-color: var(--agent-border);
+  --el-button-text-color: var(--agent-text);
+  --el-button-hover-bg-color: #334155;
+  --el-button-hover-border-color: rgba(59, 130, 246, 0.4);
+}
+
+.ai-agent-page :deep(.el-button--primary) {
+  --el-button-bg-color: var(--agent-primary);
+  --el-button-border-color: var(--agent-primary);
+  --el-button-text-color: #fff;
+  --el-button-hover-bg-color: #2563eb;
+}
+
+.ai-agent-page :deep(.el-tag) {
+  --el-tag-bg-color: rgba(59, 130, 246, 0.15);
+  --el-tag-border-color: rgba(59, 130, 246, 0.3);
+  --el-tag-text-color: #93c5fd;
+}

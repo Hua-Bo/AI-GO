@@ -155,6 +155,14 @@ const routes: RouteRecordRaw[] = [
     path: '/rain',
     component: () => import('@/views/rain/index.vue'),
   },
+  {
+    path: '/ai-agent',
+    component: () => import('@/views/ai/AIServiceAgent.vue'),
+  },
+  {
+    path: '/ai-service-agent',
+    redirect: '/ai-agent',
+  },
 ]
 
 const router = createRouter({

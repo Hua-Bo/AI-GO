@@ -79,6 +79,10 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ncwms2/i, '/ncWMS2'),
       },
+      '/api/ai': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
     },
   },
 })
