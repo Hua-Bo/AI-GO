@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useTravelPlanner } from '@/composables/travel/useTravelPlanner'
 import {
@@ -98,6 +98,10 @@ const debugRequestUrl = computed(() => {
 
 const requestModeLabel = 'GitHub Pages · 浏览器直连'
 const keyStatusLabel = computed(() => (hasApiKey.value ? '已配置本地 Key' : '未配置 API Key'))
+const workspaceRef = ref<HTMLElement | null>(null)
+const isStackMode = ref(false)
+const sidebarRatio = ref(52)
+let dragging = false
 
 function applyPreset(kind: 'wuxi' | 'qingdao' | 'sichuan') {
   if (kind === 'wuxi') {
@@ -191,13 +195,78 @@ async function handleExportImagePlain() {
     exportingImagePlain.value = false
   }
 }
+
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value))
+}
+
+function refreshStackMode() {
+  isStackMode.value = window.innerWidth <= 900
+}
+
+function updateRatioByClientY(clientY: number) {
+  if (!workspaceRef.value || !isStackMode.value) return
+  const rect = workspaceRef.value.getBoundingClientRect()
+  const ratio = ((clientY - rect.top) / rect.height) * 100
+  sidebarRatio.value = clamp(ratio, 35, 75)
+}
+
+function onMouseMove(e: MouseEvent) {
+  if (!dragging) return
+  updateRatioByClientY(e.clientY)
+}
+
+function onTouchMove(e: TouchEvent) {
+  if (!dragging || !e.touches.length) return
+  updateRatioByClientY(e.touches[0].clientY)
+}
+
+function stopDrag() {
+  dragging = false
+  document.removeEventListener('mousemove', onMouseMove)
+  document.removeEventListener('mouseup', stopDrag)
+  document.removeEventListener('touchmove', onTouchMove)
+  document.removeEventListener('touchend', stopDrag)
+}
+
+function startDragMouse(e: MouseEvent) {
+  if (!isStackMode.value) return
+  e.preventDefault()
+  dragging = true
+  document.addEventListener('mousemove', onMouseMove)
+  document.addEventListener('mouseup', stopDrag)
+}
+
+function startDragTouch(e: TouchEvent) {
+  if (!isStackMode.value || !e.touches.length) return
+  dragging = true
+  updateRatioByClientY(e.touches[0].clientY)
+  document.addEventListener('touchmove', onTouchMove)
+  document.addEventListener('touchend', stopDrag)
+}
+
+const workspaceStyle = computed(() =>
+  isStackMode.value
+    ? ({ '--sidebar-ratio': `${sidebarRatio.value}%` } as Record<string, string>)
+    : {},
+)
+
+onMounted(() => {
+  refreshStackMode()
+  window.addEventListener('resize', refreshStackMode)
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', refreshStackMode)
+  stopDrag()
+})
 </script>
 
 <template>
   <el-config-provider :locale="zhCn">
     <div class="travel-planner-page">
       <div class="travel-shell travel-app-shell">
-        <header class="travel-topbar travel-hero-bar no-print">
+        <header class="travel-topbar travel-header no-print">
           <div class="topbar-left">
             <h1 class="topbar-title">AI 旅游攻略</h1>
             <p class="topbar-subtitle">让 AI 帮你规划路线、预算和图文攻略</p>
@@ -213,7 +282,7 @@ async function handleExportImagePlain() {
           </div>
         </header>
 
-        <div class="travel-body travel-main">
+        <div ref="workspaceRef" class="travel-workspace" :style="workspaceStyle">
           <aside class="travel-sidebar travel-config-panel no-print">
             <div class="travel-sidebar-scroll">
               <el-alert v-if="stage === 'needApiKey'" type="warning" show-icon :closable="false" title="请先填写你自己的 API Key" description="当前为 GitHub Pages 静态部署版，不内置任何 Key。点击「AI 配置」填写你自己的 Key 后保存。" class="key-alert" />
@@ -302,9 +371,16 @@ async function handleExportImagePlain() {
               />
             </div>
           </aside>
-
-          <main class="travel-guide-panel travel-canvas">
-            <div class="travel-guide-inner travel-canvas-inner">
+          <div
+            class="travel-splitter no-print"
+            @mousedown="startDragMouse"
+            @touchstart.prevent="startDragTouch"
+          >
+            <span class="travel-splitter-handle">⬆⬇ 上下拖动分隔 ⬆⬇</span>
+          </div>
+          <main class="travel-guide-main travel-canvas">
+            <div class="travel-guide-scroll">
+              <div class="travel-guide-inner travel-canvas-inner">
             <div v-if="stage === 'error' && error" class="error-card no-print">
               <h3>生成失败</h3>
               <p>{{ errorTitle }}</p>
@@ -355,6 +431,7 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
               :guide="planResult"
               @regenerate-budget="regenerateBudget()"
             />
+              </div>
             </div>
           </main>
         </div>
@@ -383,21 +460,20 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
 .travel-shell {
   height: 100vh;
   display: grid;
-  grid-template-rows: 116px 1fr;
+  grid-template-rows: 64px 1fr;
   overflow: hidden;
 }
 .travel-topbar {
-  height: auto;
-  margin: 18px 24px 12px;
-  padding: 22px 28px;
-  border-radius: 28px;
+  height: 64px;
+  margin: 0;
+  padding: 0 26px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(135deg, rgba(255,255,255,0.92), rgba(255,255,255,0.72)), radial-gradient(circle at 10% 20%, rgba(59,130,246,0.18), transparent 34%), radial-gradient(circle at 90% 0%, rgba(34,197,94,0.14), transparent 30%);
-  backdrop-filter: blur(18px);
-  border: 1px solid rgba(255,255,255,0.86);
-  box-shadow: 0 22px 60px rgba(15, 23, 42, 0.08);
+  box-sizing: border-box;
+  background: rgba(255, 255, 255, 0.86);
+  border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  backdrop-filter: blur(16px);
   z-index: 10;
 }
 .topbar-title { margin: 0; font-size: 22px; font-weight: 900; letter-spacing: -0.03em; }
@@ -416,18 +492,20 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
   font-size: 12px;
 }
 .topbar-actions { display: flex; gap: 8px; }
-.travel-body {
+.travel-workspace {
+  height: calc(100vh - 64px);
   min-height: 0;
   display: grid;
-  grid-template-columns: 360px minmax(0, 1fr);
+  grid-template-columns: 340px minmax(0, 1fr);
   overflow: hidden;
 }
 .travel-sidebar {
+  min-width: 0;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  border-right: 1px solid rgba(226, 232, 240, 0.8);
-  background: rgba(255,255,255,0.72);
+  border-right: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255,255,255,0.82);
   backdrop-filter: blur(16px);
   overflow: hidden;
 }
@@ -435,33 +513,58 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 18px;
+  padding: 14px;
+  box-sizing: border-box;
 }
 .travel-sidebar-actions {
   flex-shrink: 0;
+  padding: 12px 14px 14px;
+  box-sizing: border-box;
+  border-top: 1px solid rgba(226, 232, 240, 0.9);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.06);
 }
-.travel-guide-panel {
+.travel-guide-main {
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+}
+.travel-splitter {
+  display: none;
+}
+.travel-guide-scroll {
+  width: 100%;
+  height: 100%;
   overflow-y: auto;
   scroll-behavior: smooth;
-  padding: 28px 36px;
+  padding: 24px 32px;
+  box-sizing: border-box;
   background: radial-gradient(circle at 90% 0%, rgba(56,189,248,0.10), transparent 28%), #f8fafc;
 }
 .travel-guide-inner {
-  max-width: 1180px;
+  width: min(900px, 100%);
   margin: 0 auto;
 }
 .config-card {
-  margin-bottom: 14px;
-  padding: 16px;
-  border-radius: 24px;
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 18px;
   background: rgba(255,255,255,0.88);
   border: 1px solid rgba(226,232,240,0.9);
   box-shadow: 0 12px 30px rgba(15,23,42,0.045);
 }
 .config-card-title { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 900; color: #172033; }
 .config-card-desc { margin: 4px 0 12px; font-size: 12px; color: #64748b; }
+.form-card,
+.trip-config-card {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  padding: 14px;
+  border-radius: 18px;
+}
 .ai-model-card { margin-bottom: 14px; }
 .gh-pages-hint {
   margin: 10px 0 0;
@@ -495,7 +598,7 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
 .empty-tip .icon { font-size: 40px; margin-bottom: 12px; }
 .empty-tip h3 { margin: 0 0 8px; font-size: 22px; color: var(--travel-text); }
 .example-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-top: 14px; }
-.empty-trip-state { min-height: calc(100vh - 180px); display: flex; align-items: center; justify-content: center; }
+.empty-trip-state { min-height: calc(100vh - 140px); display: flex; align-items: center; justify-content: center; }
 .empty-trip-card {
   width: min(820px, 100%);
   padding: 44px;
@@ -519,11 +622,85 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
 .inspiration-route-card p { margin: 8px 0 0; font-size: 12px; color: #64748b; line-height: 1.5; }
 .inspiration-route-card:hover { transform: translateY(-3px); box-shadow: 0 18px 40px rgba(37,99,235,0.14); }
 @media (max-width: 1280px) {
-  .travel-topbar { min-height: 88px; flex-wrap: wrap; gap: 10px; margin: 12px; padding: 16px 18px; }
-  .travel-shell { grid-template-rows: auto 1fr; }
-  .travel-body { grid-template-columns: 1fr; }
-  .travel-sidebar { border-right: none; border-bottom: 1px solid #e5e7eb; }
+  .travel-topbar { padding: 0 20px; }
+  .travel-guide-scroll { padding: 22px 24px; }
   .inspiration-routes { grid-template-columns: 1fr; }
+}
+@media (min-width: 1025px) {
+  .travel-workspace {
+    grid-template-columns: 340px minmax(0, 1fr);
+  }
+}
+@media (max-width: 1024px) {
+  .travel-workspace {
+    grid-template-columns: 320px minmax(0, 1fr);
+    grid-template-rows: 1fr;
+  }
+  .travel-guide-scroll {
+    padding: 18px 20px;
+  }
+}
+@media (max-width: 900px) {
+  .travel-workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: var(--sidebar-ratio, 52%) 10px minmax(0, 1fr);
+    height: calc(100vh - 64px);
+  }
+  .travel-sidebar {
+    border-right: none !important;
+    border-bottom: 1px solid rgba(226, 232, 240, 0.9);
+  }
+  .travel-splitter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 34px;
+    border-top: 1px solid rgba(37, 99, 235, 0.35);
+    border-bottom: 1px solid rgba(14, 165, 233, 0.35);
+    background: linear-gradient(90deg, rgba(191, 219, 254, 0.92), rgba(153, 246, 228, 0.92));
+    cursor: row-resize;
+    touch-action: none;
+    user-select: none;
+    opacity: 1;
+    z-index: 12;
+  }
+  .travel-splitter-handle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 28px;
+    min-width: 188px;
+    padding: 0 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(146, 64, 14, 0.85);
+    background: linear-gradient(135deg, #f59e0b, #f97316);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1;
+    letter-spacing: 0.01em;
+    box-shadow:
+      0 0 0 2px rgba(254, 215, 170, 0.95),
+      0 6px 16px rgba(194, 65, 12, 0.35);
+    text-shadow: 0 1px 2px rgba(15, 23, 42, 0.4);
+    animation: splitterPulse 1.8s ease-in-out infinite;
+  }
+  .travel-splitter:active .travel-splitter-handle {
+    transform: translateY(-1px);
+    box-shadow:
+      0 0 0 2px rgba(251, 191, 36, 1),
+      0 10px 20px rgba(194, 65, 12, 0.42);
+  }
+  .travel-guide-scroll {
+    padding: 18px;
+  }
+  .travel-sidebar-actions {
+    position: static;
+  }
+  @keyframes splitterPulse {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-1px); }
+  }
 }
 </style>
 
