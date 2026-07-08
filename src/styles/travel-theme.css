@@ -1,0 +1,58 @@
+:root {
+  --trip-primary: #2563eb;
+  --trip-cyan: #06b6d4;
+  --trip-green: #22c55e;
+  --trip-orange: #f97316;
+  --trip-text: #172033;
+  --trip-text-soft: #64748b;
+  --trip-muted: #94a3b8;
+  --trip-border: rgba(148, 163, 184, 0.22);
+  --trip-card: rgba(255, 255, 255, 0.86);
+  --trip-card-solid: #ffffff;
+  --trip-radius-lg: 28px;
+  --trip-radius-md: 20px;
+  --trip-radius-sm: 14px;
+  --trip-shadow: 0 18px 50px rgba(15, 23, 42, 0.08);
+
+  --travel-primary: var(--trip-primary);
+  --travel-primary-2: var(--trip-cyan);
+  --travel-card: var(--trip-card);
+  --travel-card-solid: var(--trip-card-solid);
+  --travel-primary-light: #dbeafe;
+  --travel-success: #16a34a;
+  --travel-warning: #f59e0b;
+  --travel-danger: #ef4444;
+  --travel-text: var(--trip-text);
+  --travel-text-secondary: var(--trip-text-soft);
+  --travel-border: var(--trip-border);
+  --travel-radius: var(--trip-radius-md);
+  --travel-max-w: 1440px;
+}
+
+.travel-planner-page :deep(.el-form-item__label) {
+  color: var(--travel-text-secondary);
+  font-weight: 500;
+}
+
+.travel-planner-page :deep(.el-card) {
+  border-radius: var(--travel-radius);
+  border: 1px solid var(--travel-border);
+}
+
+.travel-planner-page :deep(.el-button) {
+  border-radius: 12px;
+}
+
+.travel-planner-page :deep(.el-input__wrapper),
+.travel-planner-page :deep(.el-textarea__inner),
+.travel-planner-page :deep(.el-select__wrapper) {
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px #e2e8f0 inset;
+  background: #fff;
+}
+
+.travel-planner-page :deep(.el-input__wrapper:hover),
+.travel-planner-page :deep(.el-textarea__inner:hover),
+.travel-planner-page :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 0 0 1px #93c5fd inset;
+}

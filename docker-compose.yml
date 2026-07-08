@@ -1,0 +1,17 @@
+services:
+  travel-ai:
+    build: .
+    container_name: travel-ai
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - AI_PROVIDER=longcat
+      - AI_MODEL=LongCat-2.0
+      - AI_BASE_URL=https://api.longcat.chat/openai/v1
+      - AI_API_KEY=${AI_API_KEY}
+      - AI_MAX_TOKENS=4096
+      - AI_REQUEST_TIMEOUT=120000
+      - AI_ALLOW_CLIENT_PROVIDER=true

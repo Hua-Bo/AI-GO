@@ -1,0 +1,109 @@
+.form-card {
+  margin-bottom: 14px;
+  padding: 16px;
+  border-radius: 22px;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.045);
+}
+
+.form-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.form-card-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #eff6ff, #ecfeff);
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.form-card-title {
+  font-size: 15px;
+  font-weight: 900;
+  color: #0f172a;
+}
+
+.form-card-desc {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.form-field {
+  margin-bottom: 14px;
+}
+
+.form-field:last-child {
+  margin-bottom: 0;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 7px;
+  font-size: 12px;
+  font-weight: 800;
+  color: #334155;
+}
+
+.form-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.5;
+}
+
+.smart-tip-card {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  color: #047857;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.smart-tip-card strong {
+  display: block;
+  margin-bottom: 2px;
+}
+
+.smart-tip-card p {
+  margin: 0;
+}
+
+.form-card :deep(.el-input__wrapper),
+.form-card :deep(.el-textarea__inner),
+.form-card :deep(.el-select__wrapper) {
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px #e2e8f0 inset;
+  background: #ffffff;
+  transition: all .16s ease;
+}
+
+.form-card :deep(.el-input__wrapper:hover),
+.form-card :deep(.el-textarea__inner:hover),
+.form-card :deep(.el-select__wrapper:hover) {
+  box-shadow: 0 0 0 1px #93c5fd inset;
+}
+
+.form-card :deep(.el-input__wrapper.is-focus),
+.form-card :deep(.el-textarea__inner:focus) {
+  box-shadow: 0 0 0 1px #2563eb inset, 0 0 0 3px rgba(37, 99, 235, 0.08);
+}
+
+.form-card :deep(.el-textarea__inner) {
+  min-height: 72px !important;
+  resize: vertical;
+}

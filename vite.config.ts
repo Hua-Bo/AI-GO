@@ -11,7 +11,14 @@ import cesiumjs from 'vite-plugin-cesiumjs';
 import Markdown from 'vite-plugin-md';
 import vueJsx from '@vitejs/plugin-vue-jsx'
 
+const repoName = process.env.GITHUB_REPOSITORY
+  ? process.env.GITHUB_REPOSITORY.split('/')[1]
+  : ''
+
 export default defineConfig({
+  base: process.env.GITHUB_ACTIONS && repoName
+    ? `/${repoName}/`
+    : './',
   plugins: [
     vue({
       include: [/\.vue$/, /\.md$/],  // 让 Vue 识别 .md 文件
@@ -69,6 +76,10 @@ export default defineConfig({
   },
   server: {
     proxy: {
+      '/api': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/geoserver': {
         target: 'http://192.168.1.17:8081',
         changeOrigin: true,
@@ -79,9 +90,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/ncwms2/i, '/ncWMS2'),
       },
-      '/api/ai': {
-        target: 'http://localhost:3000',
+      '/api/longcat': {
+        target: 'https://api.longcat.chat',
         changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/api\/longcat/, ''),
       },
     },
   },

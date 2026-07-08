@@ -163,6 +163,10 @@ const routes: RouteRecordRaw[] = [
     path: '/ai-service-agent',
     redirect: '/ai-agent',
   },
+  {
+    path: '/travel-planner',
+    component: () => import('@/views/travel/TravelPlanner.vue'),
+  },
 ]
 
 const router = createRouter({
