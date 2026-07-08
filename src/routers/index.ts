@@ -167,6 +167,14 @@ const routes: RouteRecordRaw[] = [
     path: '/travel-planner',
     component: () => import('@/views/travel/TravelPlanner.vue'),
   },
+  {
+    path: '/minecraft/ai-planner',
+    name: 'MinecraftAiPlanner',
+    component: () => import('@/views/minecraft/AiPlanner/index.vue'),
+    meta: {
+      title: '我的世界游戏方案策划 AI',
+    },
+  },
 ]
 
 const router = createRouter({
