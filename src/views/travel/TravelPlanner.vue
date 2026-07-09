@@ -30,7 +30,7 @@ const {
   preferLowCost, avoidTicketsExpensive, preferDriveToSpot, preferRiverside, preferWaterPlay,
   preferWildSpot, preferEasyParking, maxWalkDistance, specialPlaceHint,
   accommodationMode, homeBaseAddress, maxReturnDistanceKm, maxReturnDuration, accommodationNote,
-  destinationIntent, planResult,
+  destinationIntent, startDate, planMode, remindBeforeMinutes, planResult,
   planRoute, stopGeneration, retryCurrentStep, retryFromStart, retryFailedDay, regenerateBudget,
   addDeparture, removeDeparture, resetAll,
 } = useTravelPlanner()
@@ -292,6 +292,8 @@ onBeforeUnmount(() => {
                   v-model:travel-days="travelDays"
                   v-model:custom-days="customDays"
                   v-model:use-custom-days="useCustomDays"
+                  v-model:start-date="startDate"
+                  v-model:plan-mode="planMode"
                   v-model:travel-themes="travelThemes"
                   v-model:budget-level="budgetLevel"
                   v-model:pace="pace"
@@ -429,6 +431,7 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
             <RoutePlanningResult
               v-if="planResult || stage === 'planned'"
               :guide="planResult"
+              v-model:remind-before-minutes="remindBeforeMinutes"
               @regenerate-budget="regenerateBudget()"
             />
               </div>

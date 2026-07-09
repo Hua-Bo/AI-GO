@@ -1,5 +1,7 @@
 import { computed, ref } from 'vue'
 import { PlanStepError, planRouteByAi, regenerateBudgetOnly } from '@/services/travelAiApi'
+import { getTravelWeather } from '@/api/travelWeather'
+import { defaultTravelStartDate } from '@/services/travelWeatherCore'
 import { AiRequestError } from '@/services/travelAiChat'
 import { useAiModelConfig } from '@/composables/travel/useAiModelConfig'
 import type {
@@ -7,6 +9,7 @@ import type {
   DestinationIntent,
   DetailedTravelGuide,
   PlanGenerationState,
+  PlanMode,
   PlanStep,
   PlannerStage,
 } from '@/types/travelTypes'
@@ -88,6 +91,9 @@ export function useTravelPlanner() {
 
   const destinationIntent = ref<DestinationIntent>(defaultDestinationIntent())
   const planResult = ref<DetailedTravelGuide | null>(null)
+  const startDate = ref(defaultTravelStartDate())
+  const planMode = ref<PlanMode>('simple')
+  const remindBeforeMinutes = ref(15)
 
   const effectiveDays = computed(() => (useCustomDays.value ? customDays.value : travelDays.value))
   const peopleTotal = computed(() =>
@@ -124,6 +130,9 @@ export function useTravelPlanner() {
       departurePoints: departurePoints.value,
       destinationIntent: destinationIntent.value,
       travelDays: effectiveDays.value,
+      startDate: startDate.value,
+      planMode: planMode.value,
+      remindBeforeMinutes: remindBeforeMinutes.value,
       budgetLevel: budgetLevel.value,
       pace: pace.value,
       travelThemes: travelThemes.value,
@@ -210,8 +219,15 @@ export function useTravelPlanner() {
     const retryDay = options?.retryDay ?? (options?.retryStep ? (failedDay.value ?? undefined) : undefined)
 
     try {
+      loadingStep.value = '正在获取每日天气'
+      const weatherList = await getTravelWeather({
+        city: destinationIntent.value.destinationText,
+        startDate: startDate.value,
+        days: effectiveDays.value,
+      })
+
       planResult.value = await planRouteByAi(
-        buildPlanParams(),
+        { ...buildPlanParams(), weatherList },
         aiConfig.value,
         {
           onProgress: (s) => { loadingStep.value = s },
@@ -352,6 +368,9 @@ export function useTravelPlanner() {
     maxReturnDuration.value = '1.5小时'
     accommodationNote.value = ''
     destinationIntent.value = defaultDestinationIntent()
+    startDate.value = defaultTravelStartDate()
+    planMode.value = 'simple'
+    remindBeforeMinutes.value = 15
     planResult.value = null
     generationState.value = emptyGenerationState()
     error.value = ''
@@ -420,6 +439,9 @@ export function useTravelPlanner() {
     maxReturnDuration,
     accommodationNote,
     destinationIntent,
+    startDate,
+    planMode,
+    remindBeforeMinutes,
     planResult,
     planRoute,
     stopGeneration,

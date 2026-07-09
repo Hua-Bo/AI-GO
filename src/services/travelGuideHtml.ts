@@ -76,7 +76,17 @@ export function buildDetailedGuideBodyHtml(guide: DetailedTravelGuide): string {
   sections.push(`<h2>一、出行概览</h2>
     <table><tr><th>目的地</th><td>${esc(bi.destination)}</td><th>天数</th><td>${bi.travelDays} 天</td></tr>
     <tr><th>总人数</th><td>${bi.totalPeople} 人</td><th>预算</th><td>${esc(bi.budgetLevel)}</td></tr>
-    <tr><th>节奏</th><td>${esc(bi.pace)}</td><th>主题</th><td>${esc((bi.themes || []).join('、'))}</td></tr></table>`)
+    <tr><th>节奏</th><td>${esc(bi.pace)}</td><th>主题</th><td>${esc((bi.themes || []).join('、'))}</td></tr>
+    ${bi.travelDates ? `<tr><th>旅行日期</th><td colspan="3">${esc(bi.travelDates)}</td></tr>` : ''}
+    ${bi.planMode ? `<tr><th>生成模式</th><td colspan="3">${esc(bi.planMode)}</td></tr>` : ''}</table>`)
+
+  if (guide.weatherList?.length) {
+    sections.push('<h2>每日天气概览</h2><table><tr><th>日期</th><th>天气</th><th>气温</th><th>出行建议</th></tr>')
+    for (const w of guide.weatherList) {
+      sections.push(`<tr><td>${esc(w.date)}</td><td>${esc(w.weather)}</td><td>${w.tempMin}-${w.tempMax}℃</td><td>${esc(w.travelAdvice)}</td></tr>`)
+    }
+    sections.push('</table>')
+  }
 
   if (guide.departureOverview?.length) {
     sections.push('<h2>二、出发地与交通方式</h2><table><tr><th>出发地</th><th>人数</th><th>交通</th><th>角色</th><th>建议出发</th></tr>')
@@ -151,8 +161,15 @@ export function buildDetailedGuideBodyHtml(guide: DetailedTravelGuide): string {
 
   sections.push('<h2>五、每日详细行程</h2>')
   for (const day of guide.dailyPlans || []) {
-    sections.push(`<div class="day-block"><h3>第 ${day.day} 天：${esc(day.title)}</h3>
-      <p>${esc(day.startCity)} → ${esc(day.endCity)} · 住宿：${esc(day.overnightCity)}</p>
+    sections.push(`<div class="day-block"><h3>第 ${day.day} 天：${esc(day.title)}</h3>`)
+    if (day.weather) {
+      sections.push(`<p><strong>天气：</strong>${esc(day.weather.weather)} ${day.weather.tempMin}-${day.weather.tempMax}℃${day.weather.wind ? `，${esc(day.weather.wind)}` : ''}${day.weather.precipitationProbability != null ? `，降雨概率 ${day.weather.precipitationProbability}%` : ''}</p>`)
+      sections.push(`<p><strong>出行建议：</strong>${esc(day.weather.travelAdvice)}</p>`)
+    }
+    if (day.badWeatherAlternative) {
+      sections.push(`<p><strong>恶劣天气备选：</strong>${esc(day.badWeatherAlternative)}</p>`)
+    }
+    sections.push(`<p>${esc(day.startCity)} → ${esc(day.endCity)} · 住宿：${esc(day.overnightCity)}</p>
       <p>${esc(day.daySummary)}</p>`)
     if (day.transportSummary?.routeDescription) {
       sections.push(`<p class="meta">交通：${esc(day.transportSummary.transportMode)} ${esc(day.transportSummary.routeDescription)}</p>`)
@@ -183,6 +200,11 @@ export function buildDetailedGuideBodyHtml(guide: DetailedTravelGuide): string {
     const db = day.dayBudget
     if (db?.dayTotal) {
       sections.push(`<p><strong>当天预算：${esc(db.dayTotal)}</strong>（交通 ${esc(db.transport)} / 门票 ${esc(db.tickets)} / 餐饮 ${esc(db.food)} / 住宿 ${esc(db.hotel)}）</p>`)
+    }
+    if ((day.tips || []).length) {
+      sections.push('<h4>提醒事项</h4><ul>')
+      for (const t of day.tips) sections.push(`<li>${esc(t)}</li>`)
+      sections.push('</ul>')
     }
     sections.push('</div>')
   }

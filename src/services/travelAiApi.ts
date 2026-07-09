@@ -23,7 +23,9 @@ import {
   normalizeGuideTips,
   normalizeMeetingPlan,
   normalizeStartPlan,
+  attachWeatherAndRemindersToDailyPlan,
 } from '@/utils/travelNormalize'
+import { isBadWeather } from '@/services/travelWeatherCore'
 
 export class PlanStepError extends Error {
   step: PlanStep
@@ -98,6 +100,37 @@ function buildAccommodationPrefs(params: RoutePlanningParams): string {
   ].join('；')
 }
 
+function buildPlanModeConstraint(planMode?: RoutePlanningParams['planMode']): string {
+  if (planMode === 'detailed') {
+    return `【生成模式：详细版】
+- 每天按完整时间线展开
+- 包含交通方式、餐饮建议、预算估算、避坑提醒
+- 包含每个景点的推荐理由与游玩时长
+- 如有恶劣天气，必须写 badWeatherAlternative 字段说明室内备选路线`
+  }
+  return `【生成模式：精简版】
+- 每天只保留核心安排，timeline 最多 3-4 个主要节点
+- 不写冗长背景介绍，description 保持简短
+- 重点展示时间、地点、交通、注意事项
+- tips 每天 2-3 条即可`
+}
+
+function buildWeatherContextForDay(params: RoutePlanningParams, day: number): string {
+  const weather = params.weatherList?.[day - 1]
+  if (!weather) return '【当日天气】暂无预报数据，请按季节合理安排室内外活动。'
+  const bad = isBadWeather(weather)
+  return `【当日天气】${weather.date} ${weather.city}
+天气：${weather.weather}，${weather.tempMin}-${weather.tempMax}℃${weather.wind ? `，${weather.wind}` : ''}${weather.precipitationProbability != null ? `，降雨概率 ${weather.precipitationProbability}%` : ''}
+出行建议：${weather.travelAdvice}
+${bad ? `⚠️ 恶劣天气：禁止安排爬山、露营、漂流、海边长时间游玩等高风险户外活动；优先博物馆、美术馆、商场、室内展馆；必须说明调整原因并填写 badWeatherAlternative。` : '天气适宜时可安排户外景点，但仍需兼顾防晒/保暖/雨具提醒。'}`
+}
+
+function buildWeatherListContext(params: RoutePlanningParams): string {
+  if (!params.weatherList?.length) return ''
+  return `【全程天气预报】
+${params.weatherList.map((w, i) => `第${i + 1}天 ${w.date}：${w.weather} ${w.tempMin}-${w.tempMax}℃ · ${w.travelAdvice}`).join('\n')}`
+}
+
 function buildPaceConstraint(pace: RoutePlanningParams['pace']): string {
   if (pace === 'relaxed') return '每天不超过2-3个主要地点'
   if (pace === 'compact') return '可安排更多点位，说明疲劳风险'
@@ -169,6 +202,9 @@ ${di.destinationText}（${DEST_TYPE_LABEL[di.destinationType] || di.destinationT
 补充：${di.extraNote || '无'}
 
 【游玩天数】${params.travelDays} 天
+【出发日期】${params.startDate || '未指定'}
+${buildPlanModeConstraint(params.planMode)}
+${buildWeatherListContext(params)}
 【预算】${budget}
 【节奏】${pace}（${buildPaceConstraint(params.pace)}）
 【主题】${params.travelThemes.join('、')}
@@ -211,9 +247,9 @@ function isInvalidTimelineItem(item: DetailedDailyPlan['timeline'][number]): boo
     || !desc
 }
 
-function hasValidTimeline(plan: DetailedDailyPlan): boolean {
+function hasValidTimeline(plan: DetailedDailyPlan, minItems = 4): boolean {
   return Array.isArray(plan.timeline)
-    && plan.timeline.length >= 4
+    && plan.timeline.length >= minItems
     && plan.timeline.every((item) => !isInvalidTimelineItem(item))
 }
 
@@ -343,10 +379,13 @@ export async function generateDailyPlanByAi(
   const makePrompt = (retryReason = '') => ({
     config,
     systemPrompt: `${BASE_SYSTEM} 你现在只需要生成第 ${day} 天的 DetailedDailyPlan JSON。不要返回其他天。
-每天至少给出2个真实地点（长途赶路日除外）。timeline 和 scenicSpots 必须写具体景区名，禁止笼统描述。`,
+${buildPlanModeConstraint(params.planMode)}
+每天至少给出2个真实地点（长途赶路日除外）。timeline 和 scenicSpots 必须写具体景区名，禁止笼统描述。
+必须结合当日天气调整行程，恶劣天气不得安排高风险户外活动。`,
     userPrompt: `请只生成第 ${day} 天（共 ${params.travelDays} 天）的 DetailedDailyPlan JSON。
 ${retryReason ? `\n${retryReason}\n` : ''}
 ${buildParamsContext(params)}
+${buildWeatherContextForDay(params, day)}
 
 【路线总览】${context.outline.routeSummary}
 ${departCtx}
@@ -355,11 +394,13 @@ ${prevSummary}
 
 禁止输出：行程1/行程2/自由活动占位/周边景点/当地美食/视情况安排。
 timeline 每项必须含：time、title、location、description、duration、cost、transportDetail、tips[]。
+必须为 timeline 中每个时间节点生成 reminders[]（含 title、date、startTime、endTime、location、description）。
 如果为自驾，必须写清楚停车点、是否可开到附近、步行距离、电车补能或油费高速说明。
 住宿安排必须结合用户出发地和常住地判断。如果当天可合理回家，不要安排酒店。多日本地短途可每天“回家过夜”。
 若不住酒店，hotelSuggestion 使用：needed=false,type=home,area=回家过夜,priceRange=0元。
+${params.planMode === 'simple' ? '精简版：timeline 控制在 3-4 个节点，description 简短，scenicSpots 最多 3 个。' : '详细版：timeline 完整展开，meals 与 dayBudget 必须填写，恶劣天气必须写 badWeatherAlternative。'}
 scenicSpots 每项必须含：name, city, province, spotType, isFree, ticketPrice, costTips[], suggestedDuration, suitableFor[], playRoute[], mustSeePoints[], photoSpots[], avoidPitfalls[], parkingInfo, imageKeyword, carAccess{canDriveNear,parkingDistance,parkingInfo,roadCondition,walkingDistance,safetyNote}。
-还必须含：day=${day}, title, startCity, endCity, overnightCity, daySummary, transportSummary, timeline[], meals[], hotelSuggestion, dayBudget, tips[]`,
+还必须含：day=${day}, title, dateText, startCity, endCity, overnightCity, daySummary, transportSummary, timeline[], scenicSpots[], meals[], hotelSuggestion, dayBudget, tips[], reminders[], badWeatherAlternative?`,
     maxTokens: 6144,
     expectedSchemaHint: `第 ${day} 天的 DetailedDailyPlan 对象`,
     signal,
@@ -368,12 +409,13 @@ scenicSpots 每项必须含：name, city, province, spotType, isFree, ticketPric
   for (let i = 0; i < 3; i++) {
     const retryReason = i === 0 ? '' : '上一版时间线无效，请生成真实地点与真实时间安排，且至少包含上午/中午/下午/晚上。'
     const raw = await callStep<Partial<DetailedDailyPlan>>(makePrompt(retryReason))
-    const plan = normalizeDailyPlan(raw, day)
-    if (hasValidTimeline(plan)) return plan
+    const plan = attachWeatherAndRemindersToDailyPlan(normalizeDailyPlan(raw, day), params)
+    const minItems = params.planMode === 'simple' ? 3 : 4
+    if (hasValidTimeline(plan, minItems)) return plan
   }
 
   const raw = await callStep<Partial<DetailedDailyPlan>>(makePrompt('请优先保证 timeline 可用。'))
-  const fallback = normalizeDailyPlan(raw, day)
+  const fallback = attachWeatherAndRemindersToDailyPlan(normalizeDailyPlan(raw, day), params)
   fallback.timeline = buildFallbackTimeline(fallback)
   return fallback
 }

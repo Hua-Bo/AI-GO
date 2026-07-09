@@ -3,6 +3,7 @@ import type {
   DailyBudget,
   DailyHotelSuggestion,
   DailyMealPlan,
+  DailyWeather,
   DepartureOverview,
   DepartureToMeetingRoute,
   DeparturePoint,
@@ -24,11 +25,65 @@ import type {
   SpotType,
   StartPlan,
   TravelGuide,
+  TravelReminder,
 } from '@/types/travelTypes'
+import { addDaysToDate } from '@/services/travelWeatherCore'
+import { buildRemindersFromDay, normalizeTravelReminder } from '@/utils/travelReminders'
 
 export function normalizeArray<T>(value: unknown, normalizer: (item: unknown, index: number) => T): T[] {
   if (!Array.isArray(value)) return []
   return value.map(normalizer)
+}
+
+function normalizeDailyWeather(raw: unknown, fallback?: DailyWeather): DailyWeather | undefined {
+  if (!raw && !fallback) return fallback
+  const item = (raw || fallback) as Partial<DailyWeather>
+  if (!item.date && !fallback?.date) return fallback
+  return {
+    date: String(item.date || fallback?.date || ''),
+    city: String(item.city || fallback?.city || ''),
+    weather: String(item.weather || fallback?.weather || ''),
+    tempMin: typeof item.tempMin === 'number' ? item.tempMin : (fallback?.tempMin ?? 18),
+    tempMax: typeof item.tempMax === 'number' ? item.tempMax : (fallback?.tempMax ?? 26),
+    wind: item.wind ? String(item.wind) : fallback?.wind,
+    humidity: item.humidity ? String(item.humidity) : fallback?.humidity,
+    precipitationProbability: typeof item.precipitationProbability === 'number'
+      ? item.precipitationProbability
+      : fallback?.precipitationProbability,
+    warning: item.warning ? String(item.warning) : fallback?.warning,
+    travelAdvice: String(item.travelAdvice || fallback?.travelAdvice || ''),
+  }
+}
+
+function normalizeTravelReminders(raw: unknown, fallbackDate: string, remindBeforeMinutes: number): TravelReminder[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((item, i) => normalizeTravelReminder(item, i, fallbackDate, remindBeforeMinutes))
+}
+
+export function attachWeatherAndRemindersToDailyPlan(
+  plan: DetailedDailyPlan,
+  params: RoutePlanningParams,
+): DetailedDailyPlan {
+  const weatherFromList = params.weatherList?.[plan.day - 1]
+  const dateText = plan.dateText || weatherFromList?.date || (
+    params.startDate ? addDaysToDate(params.startDate, plan.day - 1) : undefined
+  )
+  const weather = normalizeDailyWeather(plan.weather, weatherFromList ? { ...weatherFromList, travelAdvice: weatherFromList.travelAdvice } : undefined)
+  const reminders = normalizeTravelReminders(
+    plan.reminders,
+    dateText || '',
+    params.remindBeforeMinutes ?? 15,
+  )
+  const finalReminders = reminders.length
+    ? reminders
+    : buildRemindersFromDay({ ...plan, dateText, weather }, params.remindBeforeMinutes ?? 15)
+  return {
+    ...plan,
+    dateText,
+    weather,
+    reminders: finalReminders,
+    badWeatherAlternative: plan.badWeatherAlternative ? String(plan.badWeatherAlternative) : undefined,
+  }
 }
 
 export function normalizeStringArray(value: unknown): string[] {
@@ -454,6 +509,15 @@ export function normalizeDailyPlans(raw: unknown): DetailedDailyPlan[] {
         : normalizeDailyHotel({ area: item.hotelAreaSuggestion, city: item.overnightCity }),
       dayBudget: normalizeDailyBudget(item.dayBudget ?? item.budgetEstimate),
       tips: normalizeStringArray(item.tips ?? item.drivingOrTransportTips),
+      weather: normalizeDailyWeather((item as { weather?: unknown }).weather),
+      reminders: normalizeTravelReminders(
+        (item as { reminders?: unknown }).reminders,
+        item.dateText ? String(item.dateText) : '',
+        15,
+      ),
+      badWeatherAlternative: (item as { badWeatherAlternative?: string }).badWeatherAlternative
+        ? String((item as { badWeatherAlternative?: string }).badWeatherAlternative)
+        : undefined,
     }
   })
 }
@@ -613,8 +677,14 @@ export function composeDetailedGuide(parts: {
     : params.budgetLevel === 'high' ? '品质轻奢' : '标准舒适'
   const paceLabel = params.pace === 'relaxed' ? '轻松慢游'
     : params.pace === 'compact' ? '特种兵' : '正常安排'
+  const planModeLabel = params.planMode === 'detailed' ? '详细版' : '精简版'
+  const travelDates = params.startDate
+    ? `${params.startDate} 起 ${outline.travelDays} 天`
+    : undefined
   const localShortTrip = isLocalShortTrip(params)
-  const normalizedDays = dailyPlans.map((day) => normalizeHotelByContext(day, params, localShortTrip))
+  const normalizedDays = dailyPlans
+    .map((day) => normalizeHotelByContext(day, params, localShortTrip))
+    .map((day) => attachWeatherAndRemindersToDailyPlan(day, params))
   const scenicSummary = collectScenicSpotSummary(normalizedDays)
   const hasHotel = normalizedDays.some((d) => d.hotelSuggestion?.needed)
   const budgetItems = (budget.items || []).map((item) => {
@@ -629,10 +699,15 @@ export function composeDetailedGuide(parts: {
     title: outline.title,
     subtitle: outline.subtitle,
     summary: outline.summary,
+    planMode: params.planMode || 'simple',
+    weatherList: params.weatherList,
     basicInfo: {
       destination: outline.destination,
       travelDays: outline.travelDays,
       totalPeople: outline.totalPeople,
+      travelDates,
+      startDate: params.startDate,
+      planMode: planModeLabel,
       budgetLevel: budgetLevelLabel,
       pace: paceLabel,
       themes: params.travelThemes,

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { BUDGET_OPTIONS, DAY_OPTIONS, OUTDOOR_PREF_OPTIONS, PACE_OPTIONS, THEME_OPTIONS } from '@/types/travelTypes'
+import type { PlanMode } from '@/types/travelTypes'
 import { computed, ref } from 'vue'
 
 const travelDays = defineModel<number>('travelDays', { required: true })
 const customDays = defineModel<number>('customDays', { required: true })
 const useCustomDays = defineModel<boolean>('useCustomDays', { required: true })
+const startDate = defineModel<string>('startDate', { required: true })
+const planMode = defineModel<PlanMode>('planMode', { required: true })
 const travelThemes = defineModel<string[]>('travelThemes', { required: true })
 const budgetLevel = defineModel<'low' | 'medium' | 'high'>('budgetLevel', { required: true })
 const pace = defineModel<'relaxed' | 'normal' | 'compact'>('pace', { required: true })
@@ -96,6 +99,44 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
 
 <template>
   <div class="basic-bar">
+    <div class="bar-section">
+      <span class="bar-label">出发日期</span>
+      <div class="bar-content">
+        <el-date-picker
+          v-model="startDate"
+          type="date"
+          value-format="YYYY-MM-DD"
+          placeholder="选择出发日期"
+          size="small"
+          style="width: 180px"
+        />
+      </div>
+    </div>
+
+    <div class="bar-section">
+      <span class="bar-label">生成模式</span>
+      <div class="bar-content plan-mode-cards">
+        <button
+          type="button"
+          class="plan-mode-card"
+          :class="{ active: planMode === 'simple' }"
+          @click="planMode = 'simple'"
+        >
+          <strong>精简版</strong>
+          <span>简洁易读，适合快速查看</span>
+        </button>
+        <button
+          type="button"
+          class="plan-mode-card"
+          :class="{ active: planMode === 'detailed' }"
+          @click="planMode = 'detailed'"
+        >
+          <strong>详细版</strong>
+          <span>信息完整，适合深度规划</span>
+        </button>
+      </div>
+    </div>
+
     <div class="bar-section">
       <span class="bar-label">游玩天数</span>
       <div class="bar-content">
@@ -263,5 +304,29 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
 }
 .more-pref-wrap { padding-top: 4px; }
 .more-toggle { border-style: dashed; }
+.plan-mode-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
+.plan-mode-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid #dbeafe;
+  background: rgba(255,255,255,0.92);
+  cursor: pointer;
+  text-align: left;
+  transition: all .18s ease;
+}
+.plan-mode-card strong { font-size: 13px; color: #172033; }
+.plan-mode-card span { font-size: 11px; color: #64748b; line-height: 1.4; }
+.plan-mode-card.active {
+  border-color: #38bdf8;
+  background: linear-gradient(135deg, #e0f2fe, #eff6ff);
+  box-shadow: 0 10px 20px rgba(14,165,233,0.12);
+}
+@media (max-width: 768px) {
+  .plan-mode-cards { grid-template-columns: 1fr; }
+}
 @media (max-width: 768px) { .bar-row-2 { flex-direction: column; gap: 16px; } }
 </style>

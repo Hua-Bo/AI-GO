@@ -1,6 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
+import { ElMessage } from 'element-plus'
 import type { DetailedTravelGuide } from '@/types/travelTypes'
+import { REMIND_BEFORE_OPTIONS } from '@/types/travelTypes'
+import { addAllToCalendar, copyAllReminderText } from '@/utils/travelReminders'
+import { getCalendarTip } from '@/utils/calendarReminder'
 import DepartureOverviewPanel from './DepartureOverviewPanel.vue'
 import DetailedMeetingPlanPanel from './DetailedMeetingPlanPanel.vue'
 import StartPlanCard from './StartPlanCard.vue'
@@ -10,10 +14,18 @@ import DetailedBudgetPanel from './DetailedBudgetPanel.vue'
 
 const props = defineProps<{
   guide: DetailedTravelGuide | null
+  remindBeforeMinutes: number
 }>()
-defineEmits<{
+
+const emit = defineEmits<{
   (e: 'regenerate-budget'): void
+  (e: 'update:remindBeforeMinutes', value: number): void
 }>()
+
+const remindOptions = REMIND_BEFORE_OPTIONS
+const calendarTip = computed(() => getCalendarTip())
+const addingAll = ref(false)
+const copyingAll = ref(false)
 
 const routeTypeLabel: Record<string, string> = {
   direct: '直达', loop: '环线', oneWay: '单程', multiCity: '多城串联',
@@ -23,6 +35,36 @@ const hasOnlyHomeStay = computed(() =>
   (props.guide?.dailyPlans || []).length > 0
   && (props.guide?.dailyPlans || []).every((d) => d.hotelSuggestion?.needed === false || d.hotelSuggestion?.type === 'home'),
 )
+
+async function handleAddAllToCalendar() {
+  if (!props.guide || addingAll.value) return
+  addingAll.value = true
+  try {
+    const result = await addAllToCalendar(props.guide, props.remindBeforeMinutes)
+    if (result.ok && result.mode === 'shared') {
+      ElMessage.success('已通过系统分享添加日历，请在弹窗中选择「日历」')
+    } else if (!result.ok) {
+      if (result.reason === 'empty') ElMessage.warning('暂无可添加的提醒')
+      else if (result.reason !== 'cancelled') {
+        ElMessage.warning(result.message || '添加日历失败，请复制提醒文本后手动添加')
+      }
+    }
+  } catch {
+    ElMessage.error('添加日历失败，请复制提醒文本后手动添加')
+  } finally {
+    addingAll.value = false
+  }
+}
+
+async function handleCopyAllReminders() {
+  if (!props.guide || copyingAll.value) return
+  copyingAll.value = true
+  try {
+    await copyAllReminderText(props.guide, props.remindBeforeMinutes)
+  } finally {
+    copyingAll.value = false
+  }
+}
 </script>
 
 <template>
@@ -37,9 +79,33 @@ const hasOnlyHomeStay = computed(() =>
           <span class="cover-tag">{{ guide.basicInfo.totalPeople }}人</span>
           <span class="cover-tag">{{ guide.basicInfo.pace }}</span>
           <span class="cover-tag">{{ guide.basicInfo.budgetLevel }}</span>
+          <span v-if="guide.basicInfo.planMode" class="cover-tag">{{ guide.basicInfo.planMode }}</span>
         </div>
       </div>
     </div>
+
+    <section class="calendar-section guide-section no-print">
+      <h3 class="section-title">手机日历提醒</h3>
+      <p class="calendar-desc">将每天的出发、景点、用餐时间添加到系统日历，系统会按设置时间提前提醒你。</p>
+      <p class="calendar-hint">网页无法直接设置手机闹钟，将通过系统日历文件添加提醒。iPhone 用户建议使用 Safari 打开本页面；微信内置浏览器可能无法直接添加。</p>
+      <p class="calendar-limit">纯前端生成日历文件在部分 iPhone / 微信内置浏览器中可能无法直接打开。如无法添加，请复制提醒文本，或用 Safari 打开页面后重试。</p>
+      <el-alert :title="calendarTip" type="info" show-icon :closable="false" class="calendar-alert" />
+      <div class="calendar-tools">
+        <span class="calendar-label">提醒时间</span>
+        <el-select
+          :model-value="remindBeforeMinutes"
+          size="small"
+          style="width: 160px"
+          @update:model-value="emit('update:remindBeforeMinutes', $event)"
+        >
+          <el-option v-for="opt in remindOptions" :key="opt.value" :label="opt.label" :value="opt.value" />
+        </el-select>
+      </div>
+      <div class="calendar-actions">
+        <el-button type="primary" size="small" :loading="addingAll" @click="handleAddAllToCalendar">添加全部行程到日历</el-button>
+        <el-button size="small" :loading="copyingAll" @click="handleCopyAllReminders">复制全部提醒文本</el-button>
+      </div>
+    </section>
 
     <section class="overview guide-section">
       <h3 class="section-title">出行概览</h3>
@@ -50,6 +116,8 @@ const hasOnlyHomeStay = computed(() =>
         <div class="overview-item"><span class="overview-label">预算</span><strong class="overview-value">{{ guide.basicInfo.budgetLevel }}</strong></div>
         <div class="overview-item"><span class="overview-label">节奏</span><strong class="overview-value">{{ guide.basicInfo.pace }}</strong></div>
         <div class="overview-item"><span class="overview-label">主题</span><strong class="overview-value">{{ (guide.basicInfo.themes || []).join('、') }}</strong></div>
+        <div v-if="guide.basicInfo.travelDates" class="overview-item"><span class="overview-label">旅行日期</span><strong class="overview-value">{{ guide.basicInfo.travelDates }}</strong></div>
+        <div v-if="guide.basicInfo.planMode" class="overview-item"><span class="overview-label">生成模式</span><strong class="overview-value">{{ guide.basicInfo.planMode }}</strong></div>
       </div>
       <el-alert
         v-if="guide.localTripHint"
@@ -89,7 +157,14 @@ const hasOnlyHomeStay = computed(() =>
 
     <section class="daily-section guide-section">
       <h3 class="section-title">每日详细行程</h3>
-      <DetailedDailyPlanCard v-for="day in (guide.dailyPlans || [])" :key="day.day" :day="day" />
+      <DetailedDailyPlanCard
+        v-for="day in (guide.dailyPlans || [])"
+        :key="day.day"
+        :day="day"
+        :plan-mode="guide.planMode"
+        :remind-before-minutes="remindBeforeMinutes"
+        :destination="guide.basicInfo.destination"
+      />
     </section>
 
     <section v-if="(guide.scenicSpotSummary || []).length" class="spots-section guide-section">
@@ -197,6 +272,14 @@ const hasOnlyHomeStay = computed(() =>
 .budget-reference p { margin: 4px 0; }
 .budget-reference .tip { color: #0369a1; }
 .risk-alert { margin-bottom: 8px; }
+.calendar-section { margin-bottom: 24px; }
+.calendar-desc { margin: 0 0 8px; font-size: 14px; color: #475569; line-height: 1.6; }
+.calendar-hint { margin: 0 0 8px; font-size: 12px; color: #94a3b8; line-height: 1.55; }
+.calendar-limit { margin: 0 0 14px; font-size: 11px; color: #b45309; line-height: 1.5; }
+.calendar-alert { margin-bottom: 14px; }
+.calendar-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 12px; }
+.calendar-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.calendar-label { font-size: 13px; color: #64748b; font-weight: 700; }
 .plan-empty { text-align: center; padding: 60px 24px; background: var(--travel-card); border-radius: var(--travel-radius); border: 1px dashed var(--travel-border); margin-top: 20px; color: var(--travel-text-secondary); }
 .empty-icon { font-size: 48px; margin-bottom: 12px; }
 @media (max-width: 1200px) {

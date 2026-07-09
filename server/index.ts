@@ -4,6 +4,8 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { proxyAiChat } from './aiProxy'
 import { generateMinecraftPlan, streamMinecraftPlan } from './minecraftPlan'
+import { getTravelWeatherHandler } from './travelWeather'
+import { createTravelCalendarHandler, serveTravelCalendarFile } from './travelCalendar'
 import { env } from './env'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
@@ -16,6 +18,9 @@ app.use(cors())
 app.use(express.json({ limit: '2mb' }))
 
 app.post('/api/ai/chat', proxyAiChat)
+app.get('/api/travel/weather', getTravelWeatherHandler)
+app.post('/api/travel/calendar/create', createTravelCalendarHandler)
+app.get('/api/travel/calendar/file/:filename', serveTravelCalendarFile)
 app.post('/api/ai/minecraft/plan/generate', generateMinecraftPlan)
 app.post('/api/ai/minecraft/plan/stream', streamMinecraftPlan)
 

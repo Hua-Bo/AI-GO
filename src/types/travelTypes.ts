@@ -2,7 +2,44 @@ export type TransportType = 'selfDriving' | 'train' | 'flight' | 'bus'
 export type CarType = 'fuel' | 'electric'
 export type BudgetLevel = 'low' | 'medium' | 'high'
 export type PaceLevel = 'relaxed' | 'normal' | 'compact'
+export type PlanMode = 'simple' | 'detailed'
 export type AiProvider = 'deepseek' | 'qwen' | 'zhipu' | 'openai' | 'longcat'
+
+export interface DailyWeather {
+  date: string
+  city: string
+  weather: string
+  tempMin: number
+  tempMax: number
+  wind?: string
+  humidity?: string
+  precipitationProbability?: number
+  warning?: string
+  travelAdvice: string
+}
+
+export interface TravelReminder {
+  id: string
+  title: string
+  date: string
+  startTime: string
+  endTime?: string
+  location?: string
+  description?: string
+  remindBeforeMinutes: number
+}
+
+export const BAD_WEATHER_KEYWORDS = [
+  '暴雨', '大雨', '雷雨', '雷阵雨', '台风', '大风', '高温', '寒潮', '大雪', '暴雪', '冰雹', '沙尘',
+] as const
+
+export const REMIND_BEFORE_OPTIONS = [
+  { label: '提前 5 分钟', value: 5 },
+  { label: '提前 10 分钟', value: 10 },
+  { label: '提前 15 分钟', value: 15 },
+  { label: '提前 30 分钟', value: 30 },
+  { label: '提前 1 小时', value: 60 },
+] as const
 
 export type PlannerStage =
   | 'input'
@@ -154,6 +191,10 @@ export interface RoutePlanningParams {
   departurePoints: DeparturePoint[]
   destinationIntent: DestinationIntent
   travelDays: number
+  startDate?: string
+  planMode?: PlanMode
+  weatherList?: DailyWeather[]
+  remindBeforeMinutes?: number
   budgetLevel: BudgetLevel
   pace: PaceLevel
   travelThemes: string[]
@@ -358,6 +399,9 @@ export interface DetailedDailyPlan {
   day: number
   title: string
   dateText?: string
+  weather?: DailyWeather
+  reminders?: TravelReminder[]
+  badWeatherAlternative?: string
   startCity: string
   endCity: string
   overnightCity: string
@@ -447,11 +491,15 @@ export interface DetailedTravelGuide {
   title: string
   subtitle: string
   summary: string
+  planMode?: PlanMode
+  weatherList?: DailyWeather[]
   basicInfo: {
     destination: string
     travelDays: number
     totalPeople: number
     travelDates?: string
+    startDate?: string
+    planMode?: string
     budgetLevel: string
     pace: string
     themes: string[]
