@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import MarkdownRenderer from '@/components/ai/MarkdownRenderer.vue'
+import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import type {
   ApiConfig,
   MinecraftPlanData,
@@ -9,16 +10,16 @@ import type {
   ProviderType,
 } from '@/api/minecraftAiPlanner'
 import {
-  API_CONFIG_KEY,
   buildMinecraftPlannerPrompt,
+  clearStoredApiConfig,
   createDefaultApiConfig,
   generateByDirectApi,
   generateByDirectApiStream,
-  generateMinecraftPlan,
-  generateMinecraftPlanStream,
   getPlayTypeLabel,
-  mockGenerateMinecraftPlan,
+  getTitleFromContent,
+  loadStoredApiConfig,
   providerPresets,
+  saveStoredApiConfig,
 } from '@/api/minecraftAiPlanner'
 
 type HistoryItem = MinecraftPlanData & {
@@ -28,15 +29,15 @@ type HistoryItem = MinecraftPlanData & {
 }
 
 const HISTORY_KEY = 'minecraft_ai_planner_history'
-const DEMO_MODE_KEY = 'minecraft_ai_demo_mode'
+const md = new MarkdownIt({ html: false, linkify: true, breaks: true })
 
 const PLAY_TYPE_OPTIONS = [
   { label: '生存开荒方案', value: 'survival' },
   { label: '建筑主题方案', value: 'building' },
   { label: '红石机关方案', value: 'redstone' },
   { label: '剧情冒险地图', value: 'adventure' },
-  { label: '模组整合包', value: 'modpack' },
-  { label: '服务器活动', value: 'server_event' },
+  { label: '模组整合包方案', value: 'modpack' },
+  { label: '服务器活动方案', value: 'server_event' },
   { label: '多人联机玩法', value: 'multiplayer' },
   { label: '新手教学路线', value: 'beginner' },
 ]
@@ -83,44 +84,11 @@ const OUTPUT_LEVEL_OPTIONS = [
   { label: '详细', value: 'detailed' },
 ] as const
 
-function defaultForm(): Omit<MinecraftPlannerRequest, 'prompt'> {
-  return {
-    playType: 'survival',
-    playerCount: 4,
-    gameVersion: 'java_1_21',
-    difficulty: 'normal',
-    style: ['teamwork', 'quest'],
-    worldTheme: ['medieval'],
-    needEconomy: true,
-    needQuest: true,
-    needBoss: true,
-    needAnnouncement: true,
-    mainGoal: '',
-    requirements: '',
-    outputLevel: 'standard',
-  }
-}
-
-const form = reactive(defaultForm())
-const apiConfig = reactive<ApiConfig>(createDefaultApiConfig())
-const apiConfigVisible = ref(false)
-const useDemoMode = ref(false)
-
-const loading = ref(false)
-const streamContent = ref('')
-const result = ref<MinecraftPlanData | null>(null)
-const historyList = ref<HistoryItem[]>([])
-const activeRequest = ref<MinecraftPlannerRequest | null>(null)
-const showAllHistory = ref(false)
-const chatSurfaceRef = ref<HTMLElement | null>(null)
-const formPanelRef = ref<HTMLElement | null>(null)
-let streamController: AbortController | null = null
-
 const templates = [
   {
     id: 'tpl-1',
     title: '4 人联机生存开荒',
-    desc: '适合朋友下班后一起玩，节奏轻松但目标明确。',
+    desc: '适合朋友一起轻松推进，有明确阶段目标。',
     form: {
       playType: 'survival',
       playerCount: 4,
@@ -140,7 +108,7 @@ const templates = [
   {
     id: 'tpl-2',
     title: '中世纪城堡建设',
-    desc: '规划城堡、村庄、港口、农田和防御系统。',
+    desc: '规划城堡、村庄、港口、农田和道路。',
     form: {
       playType: 'building',
       playerCount: 1,
@@ -180,7 +148,7 @@ const templates = [
   {
     id: 'tpl-4',
     title: '红石自动化基地',
-    desc: '自动农场、刷怪塔、仓储分类、村民交易。',
+    desc: '自动农场、刷怪塔、仓储分类和村民交易。',
     form: {
       playType: 'redstone',
       playerCount: 2,
@@ -200,7 +168,7 @@ const templates = [
   {
     id: 'tpl-5',
     title: 'RPG 剧情冒险地图',
-    desc: '职业、任务、副本、Boss、剧情推进。',
+    desc: '职业、任务、副本、Boss 和剧情推进。',
     form: {
       playType: 'adventure',
       playerCount: 8,
@@ -219,28 +187,46 @@ const templates = [
   },
 ]
 
-const currentModelLabel = computed(() => {
-  if (useDemoMode.value) return '演示模式'
-  if (apiConfig.useProxy) return `后端代理 · ${apiConfig.model || '服务端模型'}`
-  return `${providerPresets[apiConfig.provider].label} · ${apiConfig.model || '未配置模型'}`
-})
+function defaultForm(): Omit<MinecraftPlannerRequest, 'prompt'> {
+  return {
+    playType: 'survival',
+    playerCount: 4,
+    gameVersion: 'java_1_21',
+    difficulty: 'normal',
+    style: ['teamwork', 'quest'],
+    worldTheme: ['medieval'],
+    needEconomy: true,
+    needQuest: true,
+    needBoss: true,
+    needAnnouncement: true,
+    mainGoal: '',
+    requirements: '',
+    outputLevel: 'standard',
+  }
+}
 
-const hasApiKey = computed(() => !!apiConfig.apiKey.trim())
+const form = reactive(defaultForm())
+const aiConfig = reactive<ApiConfig>(createDefaultApiConfig())
+const configVisible = ref(false)
+const loading = ref(false)
+const streamContent = ref('')
+const result = ref<MinecraftPlanData | null>(null)
+const historyList = ref<HistoryItem[]>([])
+const activeRequest = ref<MinecraftPlannerRequest | null>(null)
+const showAllHistory = ref(false)
+const previewRef = ref<HTMLElement | null>(null)
+const formPanelRef = ref<HTMLElement | null>(null)
+let streamController: AbortController | null = null
+
+const hasApiConfig = computed(() => !!aiConfig.apiKey.trim())
+const currentProviderLabel = computed(() => providerPresets[aiConfig.provider].label)
 const displayContent = computed(() => streamContent.value || result.value?.content || '')
 const hasContent = computed(() => !!displayContent.value.trim())
 
-const promptSummary = computed(() => {
-  const goal = form.mainGoal.trim() || '未填写目标，由 AI 自行设计完整方案'
-  const req = form.requirements.trim() || '无特殊要求'
-  return `${getPlayTypeLabel(form.playType)} · ${form.playerCount} 人\n目标：${goal}\n要求：${req}`
-})
-
-const outlineList = computed(() => {
-  if (!displayContent.value) return []
-  return displayContent.value
-    .split('\n')
-    .filter((line) => line.startsWith('## '))
-    .map((line) => line.replace(/^##\s*/, ''))
+const renderedHtml = computed(() => {
+  const source = displayContent.value
+  if (!source) return ''
+  return DOMPurify.sanitize(md.render(source), { USE_PROFILES: { html: true } })
 })
 
 const historyVisible = computed(() =>
@@ -252,85 +238,150 @@ function formatTime(iso: string) {
   return Number.isNaN(d.getTime()) ? iso : d.toLocaleString()
 }
 
-function extractTitle(content: string) {
-  const line = content.split('\n').find((item) => item.trim().startsWith('# '))
-  return line ? line.replace(/^#\s*/, '').trim() : 'Minecraft 游戏方案'
+function renderMarkdownToHtml(content: string) {
+  return DOMPurify.sanitize(md.render(content || ''), { USE_PROFILES: { html: true } })
 }
 
-function extractSummary(content: string) {
-  const lines = content
-    .split('\n')
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .filter((line) => !line.startsWith('#'))
-  return (lines[0] || '根据配置生成的 Minecraft 游戏策划方案。').slice(0, 120)
+function escapeHtml(text: string) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
 }
 
-function loadApiConfig() {
-  try {
-    const saved = localStorage.getItem(API_CONFIG_KEY)
-    if (saved) {
-      Object.assign(apiConfig, createDefaultApiConfig(), JSON.parse(saved))
-      if (apiConfig.thinkingEnabled == null) apiConfig.thinkingEnabled = false
-    }
-  } catch (e) {
-    console.warn('[Minecraft AI] 读取模型配置失败', e)
+function safeFileName(name: string) {
+  const date = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const time = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}`
+  return `${name || 'minecraft-plan'}-${time}`.replace(/[\\/:*?"<>|]/g, '').replace(/\s+/g, '-').slice(0, 80)
+}
+
+function downloadFile(filename: string, content: string, type: string) {
+  const blob = new Blob([content], { type })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function getResultTitle(content?: string) {
+  return getTitleFromContent(content || displayContent.value)
+}
+
+function exportWordFromContent(content: string, title?: string) {
+  const html = renderMarkdownToHtml(content)
+  if (!html) {
+    ElMessage.warning('暂无可导出的内容')
+    return
   }
-  useDemoMode.value = localStorage.getItem(DEMO_MODE_KEY) === '1'
+  const docTitle = title || getTitleFromContent(content)
+  const wordHtml = `
+<html xmlns:o="urn:schemas-microsoft-com:office:office"
+      xmlns:w="urn:schemas-microsoft-com:office:word"
+      xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+  <meta charset="UTF-8">
+  <title>${escapeHtml(docTitle)}</title>
+  <style>
+    body { font-family: "Microsoft YaHei", Arial, sans-serif; font-size: 12pt; line-height: 1.8; color: #1f2937; }
+    h1 { font-size: 22pt; border-bottom: 1px solid #dddddd; padding-bottom: 10px; }
+    h2 { font-size: 16pt; margin-top: 24px; color: #111827; border-left: 4px solid #14b8a6; padding-left: 10px; }
+    h3 { font-size: 14pt; color: #374151; }
+    li { margin: 6px 0; }
+  </style>
+</head>
+<body>${html}</body>
+</html>`
+  downloadFile(`${safeFileName(docTitle)}.doc`, wordHtml, 'application/msword;charset=utf-8')
+  ElMessage.success('Word 文件已导出，可用 Word 或 WPS 打开')
 }
 
-function saveApiConfig() {
-  localStorage.setItem(API_CONFIG_KEY, JSON.stringify(apiConfig))
-  localStorage.setItem(DEMO_MODE_KEY, useDemoMode.value ? '1' : '0')
-  ElMessage.success('模型配置已保存')
-  apiConfigVisible.value = false
+function printPdfFromContent(content: string, title?: string) {
+  const html = renderMarkdownToHtml(content)
+  if (!html) {
+    ElMessage.warning('暂无可导出的内容')
+    return
+  }
+  const docTitle = title || getTitleFromContent(content)
+  const printWindow = window.open('', '_blank')
+  if (!printWindow) {
+    ElMessage.error('浏览器阻止了弹窗，请允许弹窗后重试')
+    return
+  }
+  printWindow.document.write(`<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>${escapeHtml(docTitle)}</title>
+  <style>
+    body { margin: 0; padding: 32px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Microsoft YaHei", sans-serif; color: #1f2937; line-height: 1.8; }
+    h1 { font-size: 28px; border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; }
+    h2 { margin-top: 28px; padding-left: 12px; border-left: 4px solid #14b8a6; font-size: 20px; }
+    li { margin: 6px 0; }
+    @media print { body { padding: 0; } }
+  </style>
+</head>
+<body>${html}</body>
+</html>`)
+  printWindow.document.close()
+  printWindow.focus()
+  setTimeout(() => printWindow.print(), 300)
 }
 
-function clearApiConfig() {
-  localStorage.removeItem(API_CONFIG_KEY)
-  localStorage.removeItem(DEMO_MODE_KEY)
-  Object.assign(apiConfig, createDefaultApiConfig())
-  useDemoMode.value = false
-  ElMessage.success('模型配置已清除')
+function exportWord() {
+  exportWordFromContent(displayContent.value, getResultTitle())
+}
+
+function printPdf() {
+  printPdfFromContent(displayContent.value, getResultTitle())
+}
+
+function loadAiConfig() {
+  Object.assign(aiConfig, loadStoredApiConfig())
+}
+
+function saveAiConfig() {
+  saveStoredApiConfig({ ...aiConfig })
+  ElMessage.success('AI 设置已保存')
+  configVisible.value = false
+}
+
+function clearAiConfig() {
+  clearStoredApiConfig()
+  Object.assign(aiConfig, createDefaultApiConfig())
+  ElMessage.success('AI 设置已清除')
 }
 
 function handleProviderChange(provider: ProviderType) {
   const preset = providerPresets[provider]
-  apiConfig.provider = provider
-  apiConfig.baseUrl = preset.baseUrl
-  apiConfig.model = preset.model
-  if (provider === 'longcat' && apiConfig.thinkingEnabled == null) {
-    apiConfig.thinkingEnabled = false
+  aiConfig.provider = provider
+  aiConfig.baseUrl = preset.baseUrl
+  aiConfig.model = preset.model
+}
+
+function validateAiConfig() {
+  if (!aiConfig.apiKey) {
+    ElMessage.warning('请先在 AI 设置中填写 API Key')
+    configVisible.value = true
+    return false
   }
-}
-
-function persistHistory(list: HistoryItem[]) {
-  localStorage.setItem(HISTORY_KEY, JSON.stringify(list))
-}
-
-function loadHistory() {
-  try {
-    const raw = localStorage.getItem(HISTORY_KEY)
-    if (!raw) return
-    const parsed = JSON.parse(raw) as HistoryItem[]
-    if (Array.isArray(parsed)) historyList.value = parsed.slice(0, 10)
-  } catch (e) {
-    console.warn('[Minecraft AI] 读取历史失败', e)
+  if (!aiConfig.baseUrl) {
+    ElMessage.warning('请填写 Base URL')
+    configVisible.value = true
+    return false
   }
-}
-
-function saveHistoryItem(data: MinecraftPlanData, request: MinecraftPlannerRequest) {
-  const nextList: HistoryItem[] = [
-    {
-      ...data,
-      playType: request.playType,
-      playerCount: request.playerCount,
-      request,
-    },
-    ...historyList.value.filter((item) => item.id !== data.id),
-  ].slice(0, 10)
-  historyList.value = nextList
-  persistHistory(nextList)
+  if (!aiConfig.model) {
+    ElMessage.warning('请填写模型名称')
+    configVisible.value = true
+    return false
+  }
+  return true
 }
 
 function buildPayload(source?: typeof form): MinecraftPlannerRequest {
@@ -351,115 +402,49 @@ function buildPayload(source?: typeof form): MinecraftPlannerRequest {
   return next
 }
 
-function setResult(
-  content: string,
-  request: MinecraftPlannerRequest,
-  meta?: { model?: string; title?: string; summary?: string; isMock?: boolean },
-) {
+function setResult(content: string, request: MinecraftPlannerRequest) {
+  const title = getTitleFromContent(content)
   const data: MinecraftPlanData = {
     id: String(Date.now()),
-    title: meta?.title || extractTitle(content),
-    summary: meta?.summary || extractSummary(content),
+    title,
+    summary: 'AI 生成的 Minecraft 游戏方案',
     content,
     createdAt: new Date().toISOString(),
-    model: meta?.model,
-    isMock: meta?.isMock,
+    model: aiConfig.model,
   }
   result.value = data
   streamContent.value = content
   saveHistoryItem(data, request)
 }
 
-function scrollChatToBottom() {
+function saveHistoryItem(data: MinecraftPlanData, request: MinecraftPlannerRequest) {
+  const nextList: HistoryItem[] = [
+    { ...data, playType: request.playType, playerCount: request.playerCount, request },
+    ...historyList.value.filter((item) => item.id !== data.id),
+  ].slice(0, 10)
+  historyList.value = nextList
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(nextList))
+}
+
+function loadHistory() {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY)
+    if (!raw) return
+    const parsed = JSON.parse(raw) as HistoryItem[]
+    if (Array.isArray(parsed)) historyList.value = parsed.slice(0, 10)
+  } catch (e) {
+    console.warn('[Minecraft AI] 读取历史失败', e)
+  }
+}
+
+function scrollPreviewToBottom() {
   nextTick(() => {
-    if (chatSurfaceRef.value) {
-      chatSurfaceRef.value.scrollTop = chatSurfaceRef.value.scrollHeight
-    }
+    if (previewRef.value) previewRef.value.scrollTop = previewRef.value.scrollHeight
   })
-}
-
-function validateApiConfig() {
-  if (useDemoMode.value) return true
-
-  if (!apiConfig.useProxy && !apiConfig.apiKey) {
-    ElMessage.warning('请先配置 API Key，或开启演示模式')
-    apiConfigVisible.value = true
-    return false
-  }
-  if (!apiConfig.useProxy && !apiConfig.baseUrl) {
-    ElMessage.warning('请填写 Base URL')
-    apiConfigVisible.value = true
-    return false
-  }
-  if (!apiConfig.model) {
-    ElMessage.warning('请填写模型名称')
-    apiConfigVisible.value = true
-    return false
-  }
-  return true
-}
-
-function runStream(
-  createController: (callbacks: {
-    onMessage: (text: string) => void
-    onDone?: (meta?: { model?: string; title?: string; summary?: string }) => void
-    onError?: (error: unknown) => void
-  }) => AbortController,
-  payload: MinecraftPlannerRequest,
-) {
-  return new Promise<void>((resolve, reject) => {
-    streamController = createController({
-      onMessage: (text) => {
-        streamContent.value += text
-        scrollChatToBottom()
-      },
-      onDone: (meta) => {
-        streamController = null
-        if (!streamContent.value.trim()) {
-          reject(new Error('未返回内容'))
-          return
-        }
-        setResult(streamContent.value, payload, {
-          model: meta?.model || apiConfig.model,
-          title: meta?.title,
-          summary: meta?.summary,
-        })
-        resolve()
-      },
-      onError: (error) => {
-        streamController = null
-        reject(error)
-      },
-    })
-  })
-}
-
-async function generateByProxy(payload: MinecraftPlannerRequest) {
-  if (apiConfig.useStream) {
-    await runStream(
-      (callbacks) => generateMinecraftPlanStream(payload, callbacks, apiConfig),
-      payload,
-    )
-    return
-  }
-  const res = await generateMinecraftPlan(payload, apiConfig)
-  setResult(res.data.content, payload, {
-    model: res.data.model || apiConfig.model,
-    title: res.data.title,
-    summary: res.data.summary,
-  })
-}
-
-async function generateByDirectStream(payload: MinecraftPlannerRequest) {
-  await runStream(
-    (callbacks) => generateByDirectApiStream(payload, apiConfig, callbacks),
-    payload,
-  )
 }
 
 async function handleGenerate(usingRequest?: typeof form) {
-  if (loading.value) return
-  if (!validateApiConfig()) return
+  if (loading.value || !validateAiConfig()) return
 
   streamController?.abort()
   streamController = null
@@ -471,25 +456,32 @@ async function handleGenerate(usingRequest?: typeof form) {
   activeRequest.value = payload
 
   try {
-    if (useDemoMode.value) {
-      const mockRes = await mockGenerateMinecraftPlan(payload)
-      setResult(mockRes.data.content, payload, {
-        model: 'demo',
-        title: mockRes.data.title,
-        summary: mockRes.data.summary,
-        isMock: true,
+    if (aiConfig.stream) {
+      await new Promise<void>((resolve, reject) => {
+        streamController = generateByDirectApiStream(payload, aiConfig, {
+          onMessage: (text) => {
+            streamContent.value += text
+            scrollPreviewToBottom()
+          },
+          onDone: () => {
+            streamController = null
+            if (!streamContent.value.trim()) {
+              reject(new Error('未返回内容'))
+              return
+            }
+            setResult(streamContent.value, payload)
+            resolve()
+          },
+          onError: reject,
+        })
       })
-    } else if (apiConfig.useProxy) {
-      await generateByProxy(payload)
-    } else if (apiConfig.useStream) {
-      await generateByDirectStream(payload)
     } else {
-      const content = await generateByDirectApi(payload, apiConfig)
-      setResult(content, payload, { model: apiConfig.model })
+      const content = await generateByDirectApi(payload, aiConfig)
+      setResult(content, payload)
     }
   } catch (error) {
-    console.error('AI 生成失败:', error)
-    ElMessage.error('AI 生成失败，请检查 API Key、Base URL、模型名称或网络权限')
+    console.error(error)
+    ElMessage.error('生成失败，请检查 AI 设置或稍后重试')
   } finally {
     loading.value = false
     streamController = null
@@ -500,6 +492,7 @@ function stopGenerate() {
   streamController?.abort()
   streamController = null
   loading.value = false
+  ElMessage.info('已停止生成')
 }
 
 function handleResetForm() {
@@ -507,26 +500,17 @@ function handleResetForm() {
 }
 
 async function copyResult() {
-  if (!displayContent.value) return
+  const content = displayContent.value
+  if (!content) {
+    ElMessage.warning('暂无可复制内容')
+    return
+  }
   try {
-    await navigator.clipboard.writeText(displayContent.value)
-    ElMessage.success('方案已复制')
+    await navigator.clipboard.writeText(content)
+    ElMessage.success('方案内容已复制')
   } catch {
     ElMessage.error('复制失败')
   }
-}
-
-function exportMarkdown() {
-  const content = displayContent.value
-  if (!content) return
-  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `minecraft-ai-plan-${Date.now()}.md`
-  a.click()
-  URL.revokeObjectURL(url)
-  ElMessage.success('已导出 Markdown')
 }
 
 function clearResult() {
@@ -542,7 +526,7 @@ function handleViewHistory(item: HistoryItem) {
 
 function handleDeleteHistory(id: string) {
   historyList.value = historyList.value.filter((item) => item.id !== id)
-  persistHistory(historyList.value)
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(historyList.value))
   if (result.value?.id === id) clearResult()
   ElMessage.success('已删除历史')
 }
@@ -556,19 +540,8 @@ async function handleApplyTemplate(tplId: string) {
   ElMessage.success('模板已填入，可继续调整后生成')
 }
 
-function scrollToOutline(title: string) {
-  if (!chatSurfaceRef.value) return
-  const nodes = chatSurfaceRef.value.querySelectorAll('h2')
-  for (const node of Array.from(nodes)) {
-    if ((node.textContent || '').trim() === title) {
-      node.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      break
-    }
-  }
-}
-
 onMounted(() => {
-  loadApiConfig()
+  loadAiConfig()
   loadHistory()
 })
 
@@ -582,33 +555,20 @@ onBeforeUnmount(() => {
     <div class="page-shell">
       <header class="top-header">
         <div>
-          <div class="eyebrow">
-            <span class="pixel-dot" />
-            AI WORLD PLANNER
-          </div>
+          <div class="eyebrow">AI WORLD PLANNER</div>
           <h1>Minecraft 游戏方案策划 AI</h1>
-          <p>用 AI 生成服务器玩法、地图剧情、任务系统、建筑规划和开服公告。</p>
+          <p>输入玩法需求，AI 生成服务器方案、地图剧情、任务系统和开服公告。</p>
         </div>
 
         <div class="header-actions">
-          <div class="model-status" :class="{ configured: useDemoMode || hasApiKey || apiConfig.useProxy }">
-            <span class="status-light" />
+          <div class="ai-status" :class="{ ready: hasApiConfig }">
+            <span class="status-dot" />
             <div>
-              <strong>{{ currentModelLabel }}</strong>
-              <small>
-                {{
-                  useDemoMode
-                    ? '当前模式：演示模式'
-                    : apiConfig.useProxy
-                      ? '后端代理模式'
-                      : hasApiKey
-                        ? 'API Key 已配置'
-                        : '请先配置 API Key'
-                }}
-              </small>
+              <strong>{{ hasApiConfig ? 'AI 已配置' : 'AI 未配置' }}</strong>
+              <small>{{ hasApiConfig ? currentProviderLabel : '请先填写自己的 API Key' }}</small>
             </div>
           </div>
-          <el-button class="settings-btn" @click="apiConfigVisible = true">模型设置</el-button>
+          <el-button class="settings-btn" @click="configVisible = true">AI 设置</el-button>
         </div>
       </header>
 
@@ -616,13 +576,13 @@ onBeforeUnmount(() => {
         <aside class="mc-panel config-panel" ref="formPanelRef">
           <div class="panel-head">
             <h2>方案配置</h2>
-            <p>像配置一个新世界一样设定参数</p>
+            <p>填写你的游戏需求，生成完整方案</p>
           </div>
 
           <div class="form-section">
             <div class="section-title">游戏基础</div>
             <el-form label-position="top" class="config-form">
-              <el-form-item label="玩法类型">
+              <el-form-item label="游戏类型">
                 <el-select v-model="form.playType">
                   <el-option v-for="opt in PLAY_TYPE_OPTIONS" :key="opt.value" :label="opt.label" :value="opt.value" />
                 </el-select>
@@ -648,7 +608,7 @@ onBeforeUnmount(() => {
           <div class="form-section">
             <div class="section-title">世界风格</div>
             <el-form label-position="top" class="config-form">
-              <el-form-item label="方案风格">
+              <el-form-item label="玩法风格">
                 <div class="chip-grid">
                   <button
                     v-for="opt in STYLE_OPTIONS"
@@ -697,20 +657,10 @@ onBeforeUnmount(() => {
             <div class="section-title">输出要求</div>
             <el-form label-position="top" class="config-form">
               <el-form-item label="主要目标">
-                <el-input
-                  v-model="form.mainGoal"
-                  type="textarea"
-                  :rows="3"
-                  placeholder="例如：适合 4 人联机的生存服务器，前期有明确目标，后期有末地挑战。"
-                />
+                <el-input v-model="form.mainGoal" type="textarea" :rows="3" placeholder="描述你想做的玩法目标" />
               </el-form-item>
               <el-form-item label="特殊要求">
-                <el-input
-                  v-model="form.requirements"
-                  type="textarea"
-                  :rows="3"
-                  placeholder="例如：不要太肝；适合新手；每天 1-2 小时也能推进。"
-                />
+                <el-input v-model="form.requirements" type="textarea" :rows="3" placeholder="例如：不要太肝、适合新手" />
               </el-form-item>
               <el-form-item label="输出长度">
                 <el-segmented v-model="form.outputLevel" :options="[...OUTPUT_LEVEL_OPTIONS]" />
@@ -729,55 +679,36 @@ onBeforeUnmount(() => {
         <section class="mc-panel center-panel">
           <div class="panel-toolbar">
             <div>
-              <h2>AI 方案生成器</h2>
-              <p>
-                {{ apiConfig.useProxy ? '后端代理' : currentModelLabel }}
-                · {{ useDemoMode ? '演示数据' : (apiConfig.useStream ? '流式输出' : '普通输出') }}
-              </p>
+              <h2>方案预览</h2>
+              <p>生成完成后可导出 Word 或保存 PDF</p>
             </div>
             <div class="toolbar-actions">
               <el-button size="small" :disabled="!hasContent || loading" @click="copyResult">复制</el-button>
-              <el-button size="small" :disabled="!hasContent || loading" @click="exportMarkdown">导出 MD</el-button>
-              <el-button
-                size="small"
-                :disabled="loading"
-                @click="handleGenerate(activeRequest || form)"
-              >
-                重新生成
-              </el-button>
+              <el-button size="small" :disabled="!hasContent || loading" @click="exportWord">导出 Word</el-button>
+              <el-button size="small" :disabled="!hasContent || loading" @click="printPdf">保存 PDF</el-button>
+              <el-button size="small" :disabled="loading" @click="handleGenerate(activeRequest || form)">重新生成</el-button>
               <el-button v-if="loading" size="small" type="danger" @click="stopGenerate">停止</el-button>
               <el-button size="small" :disabled="!hasContent || loading" @click="clearResult">清空</el-button>
             </div>
           </div>
 
-          <div ref="chatSurfaceRef" class="chat-surface">
-            <div v-if="!hasContent && !loading" class="welcome-card">
-              <div class="welcome-icon">⌘</div>
-              <h3>准备生成一个新的 Minecraft 世界方案</h3>
-              <p>配置左侧参数，或从右侧选择模板，然后点击生成。</p>
-              <div class="welcome-hints">
-                <span>世界观</span>
-                <span>阶段目标</span>
-                <span>任务系统</span>
-                <span>开服公告</span>
-              </div>
+          <div ref="previewRef" class="preview-surface">
+            <div v-if="!hasContent && !loading" class="empty-state">
+              <h3>还没有生成方案</h3>
+              <p>填写左侧需求后，点击「生成游戏方案」，这里会展示排版好的方案预览。</p>
+              <ul>
+                <li>导出 Word</li>
+                <li>保存 PDF</li>
+                <li>复制内容</li>
+              </ul>
             </div>
 
-            <div v-else class="message-list">
-              <div class="user-summary-message">
-                <div class="message-avatar user">你</div>
-                <div class="message-bubble">{{ promptSummary }}</div>
-              </div>
-
-              <div class="ai-message">
-                <div class="message-avatar ai">AI</div>
-                <div class="message-bubble markdown-body">
-                  <div v-if="!hasContent && loading" class="generating-plain">正在连接模型并生成方案...</div>
-                  <MarkdownRenderer v-else :content="displayContent" />
-                  <span v-if="loading" class="typing-cursor" />
-                </div>
-              </div>
+            <div v-else-if="loading && !hasContent" class="loading-state">
+              <el-skeleton :rows="12" animated />
+              <p>AI 正在生成方案，请稍候...</p>
             </div>
+
+            <div v-else class="preview-document" v-html="renderedHtml" />
           </div>
         </section>
 
@@ -799,16 +730,8 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="mc-panel side-block">
-            <div class="side-title">生成目录</div>
-            <div v-if="!outlineList.length" class="mini-empty">生成后显示章节目录</div>
-            <ul v-else class="outline-list">
-              <li v-for="item in outlineList" :key="item" @click="scrollToOutline(item)">{{ item }}</li>
-            </ul>
-          </div>
-
-          <div class="mc-panel side-block">
             <div class="side-title-row">
-              <div class="side-title">最近方案</div>
+              <div class="side-title">历史方案</div>
               <el-button
                 v-if="historyList.length > 5"
                 link
@@ -818,19 +741,16 @@ onBeforeUnmount(() => {
                 {{ showAllHistory ? '收起' : '更多' }}
               </el-button>
             </div>
-            <div v-if="!historyVisible.length" class="mini-empty">暂无历史</div>
+            <div v-if="!historyVisible.length" class="mini-empty">暂无历史记录</div>
             <div v-else class="history-list">
               <div v-for="item in historyVisible" :key="item.id" class="history-card">
-                <div class="history-top">
-                  <strong>{{ item.title }}</strong>
-                  <el-tag size="small" :type="item.isMock ? 'warning' : 'success'" effect="plain">
-                    {{ item.isMock ? '演示' : 'AI' }}
-                  </el-tag>
-                </div>
+                <strong>{{ item.title }}</strong>
                 <div class="history-meta">{{ getPlayTypeLabel(item.playType) }} / {{ item.playerCount }} 人</div>
                 <div class="history-time">{{ formatTime(item.createdAt) }}</div>
                 <div class="history-actions">
                   <el-button size="small" @click="handleViewHistory(item)">查看</el-button>
+                  <el-button size="small" @click="exportWordFromContent(item.content, item.title)">Word</el-button>
+                  <el-button size="small" @click="printPdfFromContent(item.content, item.title)">PDF</el-button>
                   <el-button size="small" type="danger" @click="handleDeleteHistory(item.id)">删除</el-button>
                 </div>
               </div>
@@ -840,42 +760,32 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <el-drawer
-      v-model="apiConfigVisible"
-      title="AI 模型设置"
-      size="440px"
-      class="model-config-drawer"
-    >
+    <el-drawer v-model="configVisible" title="AI 设置" size="440px">
       <div class="api-config-panel">
+        <p class="config-intro">请填写你自己的 AI 服务配置。API Key 只会保存在当前浏览器本地，不会展示在主页面上。</p>
+
         <el-alert
           title="安全提醒"
-          description="API Key 会保存在当前浏览器 localStorage 中，仅适合个人本地或内网演示。正式上线建议使用后端代理，由服务端保存密钥。"
+          description="API Key 会保存在当前浏览器 localStorage 中，仅适合个人本地使用。正式线上项目建议改为后端代理保存密钥。"
           type="warning"
           show-icon
           :closable="false"
         />
 
         <el-form label-position="top" class="api-form">
-          <el-form-item label="调用方式">
-            <el-radio-group v-model="apiConfig.useProxy">
-              <el-radio-button :label="false">前端直连</el-radio-button>
-              <el-radio-button :label="true">后端代理</el-radio-button>
-            </el-radio-group>
-          </el-form-item>
-
           <el-form-item label="服务商">
-            <el-select v-model="apiConfig.provider" @change="handleProviderChange">
+            <el-select v-model="aiConfig.provider" @change="handleProviderChange">
               <el-option label="LongCat" value="longcat" />
               <el-option label="DeepSeek" value="deepseek" />
               <el-option label="OpenAI" value="openai" />
               <el-option label="通义千问" value="qwen" />
-              <el-option label="自定义 OpenAI Compatible" value="custom" />
+              <el-option label="自定义兼容接口" value="custom" />
             </el-select>
           </el-form-item>
 
-          <el-form-item v-if="!apiConfig.useProxy" label="API Key">
+          <el-form-item label="API Key">
             <el-input
-              v-model="apiConfig.apiKey"
+              v-model="aiConfig.apiKey"
               type="password"
               show-password
               placeholder="请输入 API Key，例如 sk-..."
@@ -883,46 +793,30 @@ onBeforeUnmount(() => {
           </el-form-item>
 
           <el-form-item label="Base URL">
-            <el-input
-              v-model="apiConfig.baseUrl"
-              placeholder="https://api.longcat.chat/openai/v1"
-              :disabled="apiConfig.useProxy"
-            />
+            <el-input v-model="aiConfig.baseUrl" placeholder="https://api.longcat.chat/openai/v1" />
           </el-form-item>
 
           <el-form-item label="模型名称">
-            <el-input
-              v-model="apiConfig.model"
-              placeholder="LongCat-2.0 / deepseek-chat / gpt-4o-mini / qwen-plus"
-            />
+            <el-input v-model="aiConfig.model" placeholder="LongCat-2.0 / deepseek-chat / gpt-4o-mini" />
           </el-form-item>
 
-          <el-form-item v-if="apiConfig.provider === 'longcat'" label="LongCat Thinking">
-            <el-switch v-model="apiConfig.thinkingEnabled" />
-            <div class="form-tip">
-              LongCat 支持 OpenAI 兼容接口，本页默认使用 OpenAI 格式调用。关闭 Thinking 通常更快、更稳。
-            </div>
+          <el-form-item v-if="aiConfig.provider === 'longcat'" label="LongCat Thinking">
+            <el-switch v-model="aiConfig.thinkingEnabled" />
+            <div class="form-tip">关闭 Thinking 通常更快、更稳定。</div>
           </el-form-item>
 
-          <el-form-item :label="`Temperature ${apiConfig.temperature}`">
-            <el-slider v-model="apiConfig.temperature" :min="0" :max="1" :step="0.1" />
+          <el-form-item :label="`Temperature ${aiConfig.temperature}`">
+            <el-slider v-model="aiConfig.temperature" :min="0" :max="1" :step="0.1" />
           </el-form-item>
 
-          <el-form-item label="流式输出">
-            <el-switch v-model="apiConfig.useStream" />
-          </el-form-item>
-
-          <el-divider />
-
-          <el-form-item label="演示模式">
-            <el-switch v-model="useDemoMode" />
-            <div class="form-tip">开启后不调用真实 AI，只使用本地演示数据。</div>
+          <el-form-item label="流式生成">
+            <el-switch v-model="aiConfig.stream" />
           </el-form-item>
         </el-form>
 
         <div class="drawer-actions">
-          <el-button @click="clearApiConfig">清除配置</el-button>
-          <el-button type="primary" @click="saveApiConfig">保存配置</el-button>
+          <el-button @click="clearAiConfig">清除配置</el-button>
+          <el-button type="primary" @click="saveAiConfig">保存配置</el-button>
         </div>
       </div>
     </el-drawer>
@@ -931,44 +825,25 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .minecraft-ai-page {
-  --mc-bg: #0b0f14;
-  --mc-panel: rgba(18, 24, 33, 0.86);
-  --mc-border: rgba(255, 255, 255, 0.09);
-  --mc-text: #eef2f7;
-  --mc-text-sub: #a7b0be;
-  --mc-text-muted: #6f7a89;
-  --mc-diamond: #5eead4;
-  --mc-diamond-soft: rgba(94, 234, 212, 0.13);
-  --mc-wood: #b77945;
-  --mc-wood-soft: rgba(183, 121, 69, 0.14);
-  --mc-grass: #7ddc83;
-  --mc-gold: #f2c766;
-  --mc-redstone: #ef6b73;
-  --mc-radius-lg: 22px;
-  --mc-radius-md: 16px;
+  --page-bg: #0d1117;
+  --panel-bg: rgba(22, 27, 34, 0.92);
+  --panel-border: rgba(255, 255, 255, 0.08);
+  --text-main: #f0f6fc;
+  --text-sub: #9ba7b4;
+  --text-muted: #6e7681;
+  --accent: #5eead4;
+  --accent-soft: rgba(94, 234, 212, 0.14);
+  --wood: #b77945;
+  --danger: #ef6b73;
 
   position: relative;
   min-height: 100vh;
   padding: 24px;
-  color: var(--mc-text);
+  color: var(--text-main);
   background:
-    radial-gradient(circle at 18% 10%, rgba(94, 234, 212, 0.11), transparent 28%),
-    radial-gradient(circle at 84% 12%, rgba(183, 121, 69, 0.10), transparent 26%),
-    radial-gradient(circle at 80% 80%, rgba(125, 220, 131, 0.07), transparent 28%),
-    linear-gradient(180deg, #0b0f14 0%, #0d121a 48%, #090d13 100%);
-}
-
-.minecraft-ai-page::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0.35;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 32px 32px;
-  mask-image: linear-gradient(to bottom, black, transparent 82%);
+    radial-gradient(circle at 20% 10%, rgba(94, 234, 212, 0.10), transparent 28%),
+    radial-gradient(circle at 84% 18%, rgba(183, 121, 69, 0.10), transparent 26%),
+    linear-gradient(180deg, #0d1117 0%, #0b1018 100%);
 }
 
 .page-shell {
@@ -979,11 +854,11 @@ onBeforeUnmount(() => {
 }
 
 .mc-panel {
-  background: var(--mc-panel);
-  border: 1px solid var(--mc-border);
-  border-radius: var(--mc-radius-lg);
-  backdrop-filter: blur(22px);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 20px;
+  backdrop-filter: blur(18px);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24);
 }
 
 .top-header {
@@ -993,42 +868,27 @@ onBeforeUnmount(() => {
   align-items: center;
   margin-bottom: 18px;
   padding: 18px 20px;
-  border-radius: 24px;
-  background: rgba(18, 24, 33, 0.72);
-  border: 1px solid var(--mc-border);
-  backdrop-filter: blur(22px);
-  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.28);
+  border-radius: 22px;
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
 }
 
 .eyebrow {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--mc-diamond);
+  color: var(--accent);
   font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.12em;
 }
 
-.pixel-dot {
-  width: 9px;
-  height: 9px;
-  background: var(--mc-diamond);
-  box-shadow:
-    10px 0 0 var(--mc-wood),
-    20px 0 0 var(--mc-grass);
-}
-
 .top-header h1 {
   margin: 8px 0 6px;
-  font-size: 30px;
+  font-size: 28px;
   line-height: 1.15;
-  color: var(--mc-text);
 }
 
 .top-header p {
   margin: 0;
-  color: var(--mc-text-sub);
+  color: var(--text-sub);
 }
 
 .header-actions {
@@ -1039,44 +899,44 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 
-.model-status {
-  min-width: 230px;
+.ai-status {
+  min-width: 220px;
   display: flex;
   align-items: center;
   gap: 10px;
   padding: 12px;
-  border-radius: 16px;
+  border-radius: 14px;
   background: rgba(9, 13, 19, 0.72);
-  border: 1px solid var(--mc-border);
+  border: 1px solid var(--panel-border);
 }
 
-.model-status strong,
-.model-status small {
+.ai-status strong,
+.ai-status small {
   display: block;
 }
 
-.model-status small {
+.ai-status small {
   margin-top: 3px;
-  color: var(--mc-text-muted);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
-.status-light {
+.status-dot {
   width: 9px;
   height: 9px;
   border-radius: 50%;
-  background: var(--mc-redstone);
-  box-shadow: 0 0 16px rgba(239, 107, 115, 0.48);
+  background: var(--danger);
+  box-shadow: 0 0 14px rgba(239, 107, 115, 0.45);
 }
 
-.model-status.configured .status-light {
-  background: var(--mc-diamond);
-  box-shadow: 0 0 16px rgba(94, 234, 212, 0.48);
+.ai-status.ready .status-dot {
+  background: var(--accent);
+  box-shadow: 0 0 14px rgba(94, 234, 212, 0.45);
 }
 
 .settings-btn {
   height: 42px;
-  border-radius: 14px;
+  border-radius: 12px;
 }
 
 .workspace {
@@ -1084,12 +944,6 @@ onBeforeUnmount(() => {
   grid-template-columns: 330px minmax(0, 1fr) 320px;
   gap: 16px;
   align-items: start;
-}
-
-.config-panel,
-.center-panel,
-.side-block {
-  overflow: hidden;
 }
 
 .config-panel {
@@ -1105,16 +959,16 @@ onBeforeUnmount(() => {
 .panel-head p,
 .panel-toolbar p {
   margin: 6px 0 0;
-  color: var(--mc-text-muted);
+  color: var(--text-muted);
   font-size: 12px;
 }
 
 .form-section {
   margin-top: 14px;
   padding: 14px;
-  border-radius: var(--mc-radius-md);
+  border-radius: 14px;
   background: rgba(9, 13, 19, 0.48);
-  border: 1px solid var(--mc-border);
+  border: 1px solid var(--panel-border);
 }
 
 .section-title,
@@ -1122,11 +976,11 @@ onBeforeUnmount(() => {
   margin-bottom: 12px;
   font-size: 13px;
   font-weight: 800;
-  color: var(--mc-text);
 }
 
-.config-form :deep(.el-form-item__label) {
-  color: var(--mc-text-sub);
+.config-form :deep(.el-form-item__label),
+.api-form :deep(.el-form-item__label) {
+  color: var(--text-sub);
   font-weight: 700;
 }
 
@@ -1137,7 +991,7 @@ onBeforeUnmount(() => {
 .api-form :deep(.el-select__wrapper) {
   background: rgba(255, 255, 255, 0.03) !important;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset !important;
-  color: var(--mc-text) !important;
+  color: var(--text-main) !important;
   border-radius: 12px;
 }
 
@@ -1148,9 +1002,9 @@ onBeforeUnmount(() => {
 }
 
 .chip {
-  border: 1px solid var(--mc-border);
+  border: 1px solid var(--panel-border);
   background: rgba(9, 13, 19, 0.55);
-  color: var(--mc-text-sub);
+  color: var(--text-sub);
   border-radius: 999px;
   padding: 6px 10px;
   font-size: 12px;
@@ -1158,9 +1012,9 @@ onBeforeUnmount(() => {
 }
 
 .chip.active {
-  color: var(--mc-diamond);
+  color: var(--accent);
   border-color: rgba(94, 234, 212, 0.35);
-  background: var(--mc-diamond-soft);
+  background: var(--accent-soft);
 }
 
 .switch-list {
@@ -1175,7 +1029,7 @@ onBeforeUnmount(() => {
   padding: 10px 12px;
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.02);
-  border: 1px solid var(--mc-border);
+  border: 1px solid var(--panel-border);
   font-size: 13px;
 }
 
@@ -1196,9 +1050,7 @@ onBeforeUnmount(() => {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.42), transparent 45%),
     linear-gradient(135deg, #99f6e4, #5eead4 56%, #2dd4bf);
-  box-shadow:
-    0 12px 28px rgba(45, 212, 191, 0.22),
-    inset 0 -3px 0 rgba(15, 118, 110, 0.65);
+  box-shadow: 0 12px 28px rgba(45, 212, 191, 0.22);
 }
 
 .primary-generate-btn:disabled {
@@ -1217,7 +1069,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   padding: 16px;
-  border-bottom: 1px solid var(--mc-border);
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .toolbar-actions {
@@ -1227,135 +1079,92 @@ onBeforeUnmount(() => {
   justify-content: flex-end;
 }
 
-.chat-surface {
+.preview-surface {
   flex: 1;
   padding: 18px;
   overflow-y: auto;
   min-height: 560px;
 }
 
-.welcome-card {
-  max-width: 640px;
-  margin: 56px auto 0;
+.empty-state,
+.loading-state {
+  max-width: 520px;
+  margin: 48px auto 0;
   text-align: center;
+  color: var(--text-sub);
 }
 
-.welcome-icon {
-  width: 54px;
-  height: 54px;
-  margin: 0 auto 14px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  font-size: 22px;
-  background: var(--mc-diamond-soft);
-  color: var(--mc-diamond);
-  border: 1px solid rgba(94, 234, 212, 0.28);
+.empty-state h3 {
+  margin: 0 0 10px;
+  color: var(--text-main);
 }
 
-.welcome-card h3 {
-  margin: 0 0 8px;
+.empty-state ul {
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.empty-state li {
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--panel-border);
+  font-size: 12px;
+}
+
+.loading-state p {
+  margin-top: 14px;
+}
+
+.preview-document {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 32px;
+  border-radius: 18px;
+  background: #f8fafc;
+  color: #1f2937;
+  line-height: 1.82;
+  font-size: 15px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.28);
+}
+
+.preview-document :deep(h1) {
+  margin: 0 0 20px;
+  font-size: 28px;
+  color: #111827;
+  border-bottom: 2px solid #e5e7eb;
+  padding-bottom: 14px;
+}
+
+.preview-document :deep(h2) {
+  margin-top: 28px;
+  margin-bottom: 12px;
+  padding-left: 12px;
+  border-left: 4px solid #14b8a6;
+  color: #111827;
   font-size: 20px;
 }
 
-.welcome-card p {
-  margin: 0;
-  color: var(--mc-text-sub);
-}
-
-.welcome-hints {
+.preview-document :deep(h3) {
   margin-top: 18px;
-  display: flex;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 8px;
+  color: #374151;
 }
 
-.welcome-hints span {
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--mc-border);
-  color: var(--mc-text-muted);
-  font-size: 12px;
+.preview-document :deep(p) {
+  margin: 10px 0;
 }
 
-.message-list {
-  max-width: 920px;
-  margin: 0 auto;
+.preview-document :deep(ul),
+.preview-document :deep(ol) {
+  padding-left: 24px;
 }
 
-.user-summary-message,
-.ai-message {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 18px;
-}
-
-.message-avatar {
-  width: 34px;
-  height: 34px;
-  flex: 0 0 34px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  font-weight: 900;
-  font-size: 12px;
-}
-
-.message-avatar.user {
-  background: var(--mc-wood-soft);
-  color: #ffd9b0;
-  border: 1px solid rgba(183, 121, 69, 0.28);
-}
-
-.message-avatar.ai {
-  background: var(--mc-diamond-soft);
-  color: var(--mc-diamond);
-  border: 1px solid rgba(94, 234, 212, 0.28);
-}
-
-.message-bubble {
-  flex: 1;
-  padding: 14px 16px;
-  border-radius: 16px;
-  background: rgba(9, 13, 19, 0.62);
-  border: 1px solid var(--mc-border);
-  color: var(--mc-text);
-  line-height: 1.8;
-  white-space: pre-wrap;
-}
-
-.markdown-body {
-  white-space: normal;
-}
-
-.markdown-body :deep(.md-renderer .copy-btn) {
-  display: none;
-}
-
-.markdown-body :deep(h1),
-.markdown-body :deep(h2),
-.markdown-body :deep(h3) {
-  color: #d8f3ef;
-}
-
-.generating-plain {
-  color: var(--mc-text-sub);
-}
-
-.typing-cursor {
-  display: inline-block;
-  width: 8px;
-  height: 18px;
-  margin-left: 3px;
-  vertical-align: text-bottom;
-  background: var(--mc-diamond);
-  animation: blink 1s infinite;
-}
-
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
+.preview-document :deep(li) {
+  margin: 6px 0;
 }
 
 .side-panel {
@@ -1385,22 +1194,21 @@ onBeforeUnmount(() => {
   padding: 13px;
   border-radius: 15px;
   background: rgba(9, 13, 19, 0.56);
-  border: 1px solid var(--mc-border);
+  border: 1px solid var(--panel-border);
   text-align: left;
   color: inherit;
   cursor: pointer;
   transition: 0.18s ease;
 }
 
-.template-card:hover,
-.history-card:hover {
+.template-card:hover {
   transform: translateY(-2px);
   border-color: rgba(94, 234, 212, 0.35);
   background: rgba(94, 234, 212, 0.08);
 }
 
 .template-card strong,
-.history-top strong {
+.history-card strong {
   display: block;
   font-size: 13px;
 }
@@ -1412,44 +1220,15 @@ onBeforeUnmount(() => {
   display: block;
   margin-top: 6px;
   font-size: 12px;
-  color: var(--mc-text-muted);
+  color: var(--text-muted);
   line-height: 1.5;
-}
-
-.history-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
 }
 
 .history-actions {
   margin-top: 10px;
   display: flex;
-  gap: 8px;
-}
-
-.outline-list {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: grid;
-  gap: 8px;
-  max-height: 220px;
-  overflow: auto;
-}
-
-.outline-list li {
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(9, 13, 19, 0.5);
-  border: 1px solid var(--mc-border);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.outline-list li:hover {
-  border-color: rgba(94, 234, 212, 0.35);
-  color: var(--mc-diamond);
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .api-config-panel {
@@ -1458,11 +1237,12 @@ onBeforeUnmount(() => {
   padding-bottom: 12px;
 }
 
+.config-intro,
 .form-tip {
-  margin-top: 8px;
-  font-size: 12px;
-  color: var(--mc-text-muted);
-  line-height: 1.5;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-sub);
+  line-height: 1.6;
 }
 
 .drawer-actions {
@@ -1478,7 +1258,7 @@ onBeforeUnmount(() => {
 
   .side-panel {
     grid-column: 1 / -1;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -1503,10 +1283,6 @@ onBeforeUnmount(() => {
 
   .toolbar-actions {
     justify-content: flex-start;
-  }
-
-  .top-header h1 {
-    font-size: 24px;
   }
 }
 </style>
