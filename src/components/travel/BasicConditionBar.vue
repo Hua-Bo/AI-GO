@@ -32,6 +32,16 @@ const preferWildSpot = defineModel<boolean>('preferWildSpot', { required: true }
 const preferEasyParking = defineModel<boolean>('preferEasyParking', { required: true })
 const maxWalkDistance = defineModel<string>('maxWalkDistance', { required: true })
 
+const props = withDefaults(defineProps<{
+  /** all=全部；core=移动端核心；advanced=移动端更多偏好 */
+  section?: 'all' | 'core' | 'advanced'
+}>(), {
+  section: 'all',
+})
+
+const showCore = computed(() => props.section === 'all' || props.section === 'core')
+const showAdvanced = computed(() => props.section === 'all' || props.section === 'advanced')
+
 const outdoorMap = computed(() => ({
   preferFreeSpots: preferFreeSpots.value,
   preferParks: preferParks.value,
@@ -99,64 +109,65 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
 
 <template>
   <div class="basic-bar">
-    <div class="bar-section">
-      <span class="bar-label">出发日期</span>
-      <div class="bar-content">
-        <el-date-picker
-          v-model="startDate"
-          type="date"
-          value-format="YYYY-MM-DD"
-          placeholder="选择出发日期"
-          size="small"
-          style="width: 180px"
-        />
+    <template v-if="showCore">
+      <div class="bar-section">
+        <span class="bar-label">出发日期</span>
+        <div class="bar-content">
+          <el-date-picker
+            v-model="startDate"
+            type="date"
+            value-format="YYYY-MM-DD"
+            placeholder="选择出发日期"
+            class="date-picker-full"
+          />
+        </div>
       </div>
-    </div>
 
-    <div class="bar-section">
-      <span class="bar-label">生成模式</span>
-      <div class="bar-content plan-mode-cards">
-        <button
-          type="button"
-          class="plan-mode-card"
-          :class="{ active: planMode === 'simple' }"
-          @click="planMode = 'simple'"
-        >
-          <strong>精简版</strong>
-          <span>简洁易读，适合快速查看</span>
-        </button>
-        <button
-          type="button"
-          class="plan-mode-card"
-          :class="{ active: planMode === 'detailed' }"
-          @click="planMode = 'detailed'"
-        >
-          <strong>详细版</strong>
-          <span>信息完整，适合深度规划</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="bar-section">
-      <span class="bar-label">游玩天数</span>
-      <div class="bar-content">
-        <div class="day-pill-group">
+      <div class="bar-section">
+        <span class="bar-label">生成模式</span>
+        <div class="bar-content plan-mode-cards">
           <button
-            v-for="d in DAY_OPTIONS"
-            :key="d"
-            class="trip-chip"
-            :class="{ active: !useCustomDays && travelDays === d }"
-            @click="travelDays = d; useCustomDays = false"
+            type="button"
+            class="plan-mode-card"
+            :class="{ active: planMode === 'simple' }"
+            @click="planMode = 'simple'"
           >
-            {{ d }}天
+            <strong>精简版</strong>
+            <span>简洁易读，适合快速查看</span>
+          </button>
+          <button
+            type="button"
+            class="plan-mode-card"
+            :class="{ active: planMode === 'detailed' }"
+            @click="planMode = 'detailed'"
+          >
+            <strong>详细版</strong>
+            <span>信息完整，适合深度规划</span>
           </button>
         </div>
-        <button class="trip-chip custom" :class="{ active: useCustomDays }" @click="useCustomDays = !useCustomDays">自定义</button>
-        <el-input-number v-if="useCustomDays" v-model="customDays" :min="1" :max="30" size="small" style="width: 120px" />
       </div>
-    </div>
 
-    <div class="bar-section">
+      <div class="bar-section">
+        <span class="bar-label">游玩天数</span>
+        <div class="bar-content">
+          <div class="day-pill-group">
+            <button
+              v-for="d in DAY_OPTIONS"
+              :key="d"
+              class="trip-chip"
+              :class="{ active: !useCustomDays && travelDays === d }"
+              @click="travelDays = d; useCustomDays = false"
+            >
+              {{ d }}天
+            </button>
+          </div>
+          <button class="trip-chip custom" :class="{ active: useCustomDays }" @click="useCustomDays = !useCustomDays">自定义</button>
+          <el-input-number v-if="useCustomDays" v-model="customDays" :min="1" :max="30" style="width: 140px" />
+        </div>
+      </div>
+    </template>
+
+    <div v-if="showAdvanced" class="bar-section">
       <span class="bar-label">旅游主题</span>
       <div class="bar-content trip-chip-group">
         <button
@@ -172,7 +183,7 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
       </div>
     </div>
 
-    <div class="bar-section">
+    <div v-if="showAdvanced" class="bar-section">
       <span class="bar-label">免费 / 户外偏好</span>
       <div class="bar-content trip-chip-group">
         <button
@@ -203,7 +214,7 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
       </div>
       <div class="bar-content walk-distance">
         <span class="walk-label">🚶 少走路范围</span>
-        <el-select v-model="maxWalkDistance" size="small" style="width: 150px">
+        <el-select v-model="maxWalkDistance" style="width: 100%; max-width: 220px">
           <el-option label="0-200米" value="0-200米" />
           <el-option label="0-500米" value="0-500米" />
           <el-option label="500-1000米" value="500-1000米" />
@@ -212,22 +223,22 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
       </div>
     </div>
 
-    <div class="bar-section bar-row-2">
+    <div v-if="showAdvanced" class="bar-section bar-row-2">
       <div class="bar-half">
         <span class="bar-label">预算</span>
-        <el-radio-group v-model="budgetLevel" size="small" class="pill-radio">
+        <el-radio-group v-model="budgetLevel" class="pill-radio">
           <el-radio-button v-for="o in BUDGET_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</el-radio-button>
         </el-radio-group>
       </div>
       <div class="bar-half">
         <span class="bar-label">节奏</span>
-        <el-radio-group v-model="pace" size="small" class="pill-radio">
+        <el-radio-group v-model="pace" class="pill-radio">
           <el-radio-button v-for="o in PACE_OPTIONS" :key="o.value" :value="o.value">{{ o.label }}</el-radio-button>
         </el-radio-group>
       </div>
     </div>
 
-    <div class="bar-section">
+    <div v-if="showAdvanced" class="bar-section">
       <span class="bar-label">偏好与同行</span>
       <div class="bar-content trip-chip-group">
         <button
@@ -304,12 +315,14 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
 }
 .more-pref-wrap { padding-top: 4px; }
 .more-toggle { border-style: dashed; }
+.date-picker-full { width: 180px; max-width: 100%; }
 .plan-mode-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; width: 100%; }
 .plan-mode-card {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  min-height: 72px;
   padding: 12px 14px;
   border-radius: 16px;
   border: 1px solid #dbeafe;
@@ -325,8 +338,23 @@ const moreOutdoorOptions = computed(() => OUTDOOR_PREF_OPTIONS.filter((opt) => !
   background: linear-gradient(135deg, #e0f2fe, #eff6ff);
   box-shadow: 0 10px 20px rgba(14,165,233,0.12);
 }
-@media (max-width: 768px) {
-  .plan-mode-cards { grid-template-columns: 1fr; }
+@media (max-width: 900px) {
+  .plan-mode-cards { grid-template-columns: 1fr 1fr; }
+  .bar-row-2 { flex-direction: column; gap: 16px; }
+  .bar-label { font-size: 17px; }
+  .trip-chip {
+    height: auto !important;
+    min-height: 46px !important;
+    padding: 10px 16px !important;
+    font-size: 16px !important;
+  }
+  .walk-label { font-size: 16px; }
+  .date-picker-full { width: 100%; }
+  .plan-mode-card {
+    min-height: 72px;
+    padding: 12px 14px;
+  }
+  .plan-mode-card strong { font-size: 16px; }
+  .plan-mode-card span { font-size: 13px; line-height: 1.4; }
 }
-@media (max-width: 768px) { .bar-row-2 { flex-direction: column; gap: 16px; } }
 </style>

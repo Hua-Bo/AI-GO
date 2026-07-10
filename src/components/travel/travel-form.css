@@ -107,3 +107,46 @@
   min-height: 72px !important;
   resize: vertical;
 }
+
+@media (max-width: 900px) {
+  .form-card {
+    padding: 18px;
+    border-radius: 16px;
+    margin-bottom: 16px;
+  }
+
+  .form-card-title {
+    font-size: 20px;
+  }
+
+  .form-card-desc,
+  .form-help,
+  .smart-tip-card {
+    font-size: 16px;
+    line-height: 1.65;
+  }
+
+  .form-label {
+    font-size: 17px;
+    margin-bottom: 10px;
+  }
+
+  .form-card :deep(.el-input__wrapper),
+  .form-card :deep(.el-select__wrapper) {
+    min-height: 48px;
+    border-radius: 12px;
+  }
+
+  .form-card :deep(.el-input__inner),
+  .form-card :deep(.el-select__selected-item),
+  .form-card :deep(.el-select__placeholder) {
+    font-size: 17px !important;
+  }
+
+  .form-card :deep(.el-textarea__inner) {
+    min-height: 110px !important;
+    font-size: 17px !important;
+    line-height: 1.65;
+    border-radius: 12px;
+  }
+}

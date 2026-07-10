@@ -86,17 +86,25 @@ function buildDrivePrefs(params: RoutePlanningParams): string {
 
 function buildAccommodationPrefs(params: RoutePlanningParams): string {
   const p = params.accommodationPreference
-  const text = `${params.departurePoints[0]?.address || ''} ${params.destinationIntent.destinationText || ''} ${p.note || ''}`
+  const home = p.homeBaseAddress || params.departurePoints[0]?.address || ''
+  const text = `${home} ${params.destinationIntent.destinationText || ''} ${p.note || ''}`
   const localKeywords = ['周边', '附近', '本地', '滨湖', '太湖', '蠡湖', '长广溪', '鼋头渚', '雪浪山', '惠山', '宜兴']
   const shouldNoHotel = p.mode === 'auto' && params.departurePoints.length === 1
     && (localKeywords.some((k) => text.includes(k)) || (text.includes('无锡') && params.destinationIntent.destinationText.includes('无锡')))
   const mode = shouldNoHotel ? 'noHotelPreferred' : p.mode
+  const maxKm = p.maxReturnDistanceKm || 80
   return [
     `住宿模式：${mode}`,
-    `常住地/回家地址：${p.homeBaseAddress || params.departurePoints[0]?.address || '未填写'}`,
-    `可接受单程回家距离：${p.maxReturnDistanceKm || 80}km`,
+    `常住地/回家地址：${home || '未填写'}`,
+    `可接受单程回家距离：${maxKm}km`,
     `可接受单程回家时长：${p.maxReturnDuration || '1.5小时'}`,
     `补充说明：${p.note || '无'}`,
+    '住宿硬性规则：',
+    '1) 若当天最后一个景点距离常住地/出发地小于 50 公里，不要推荐酒店，文案写“建议当天返回家中休息”。',
+    '2) 本地游、近郊游默认当天返回家中休息，不要在用户居住区附近推荐酒店。',
+    '3) 用户住在无锡滨湖区时，不要推荐滨湖区或无锡市区酒店，除非用户明确选择“想住一晚/需要酒店”。',
+    '4) 只有跨市较远、返程超过 100 公里、或用户主动选择需要住宿时，才推荐酒店。',
+    '5) 多出发地场景下，只给距离较远、当天无法合理回家的人推荐住宿。',
   ].join('；')
 }
 

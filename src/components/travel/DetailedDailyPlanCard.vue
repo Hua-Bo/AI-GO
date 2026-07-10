@@ -194,5 +194,40 @@ async function handleCopyDayReminders() {
 @media (max-width: 600px) {
   .tl-item { grid-template-columns: 1fr; }
   .day-head { flex-direction: column; }
+  .day-date,
+  .weather-label,
+  .sub,
+  .loc,
+  .area,
+  .day-budget span,
+  .tips {
+    font-size: 15px !important;
+    line-height: 1.65;
+  }
+  .day-head h4 { font-size: 18px; }
+  .summary,
+  .route-line,
+  .weather-bar,
+  .transport-box,
+  .tl-item,
+  .meal-row,
+  .hotel p,
+  .day-budget {
+    font-size: 16px !important;
+    line-height: 1.7;
+  }
+  .trip-day-header { padding: 16px; }
+  .weather-bar,
+  .route-line,
+  .summary,
+  .transport-box,
+  .timeline,
+  .meal-row,
+  .hotel,
+  .day-budget,
+  .tips-block {
+    margin-left: 14px;
+    margin-right: 14px;
+  }
 }
 </style>

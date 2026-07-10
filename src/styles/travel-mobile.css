@@ -1,0 +1,606 @@
+/* 旅游页移动端大字号：用 .is-mobile（JS 判定）强制生效，不依赖媒体查询是否命中 */
+
+.travel-planner-page.is-mobile {
+  font-size: 17px !important;
+  line-height: 1.65 !important;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.travel-planner-page.is-mobile,
+.travel-planner-page.is-mobile * {
+  box-sizing: border-box;
+}
+
+/* —— 布局：自然滚动，禁止 PC 视口锁定 —— */
+.travel-planner-page.is-mobile {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  height: auto !important;
+  min-height: 100dvh !important;
+  overflow-x: hidden !important;
+  overflow-y: visible !important;
+}
+
+.travel-planner-page.is-mobile .travel-shell,
+.travel-planner-page.is-mobile .travel-app-shell {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 100dvh !important;
+  overflow: visible !important;
+  grid-template-rows: auto auto !important;
+}
+
+.travel-planner-page.is-mobile .travel-topbar,
+.travel-planner-page.is-mobile .travel-header {
+  height: auto !important;
+  min-height: 60px;
+  padding: 12px 14px !important;
+  display: flex !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  gap: 10px;
+}
+
+.travel-planner-page.is-mobile .topbar-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.travel-planner-page.is-mobile .topbar-title {
+  font-size: 22px !important;
+  font-weight: 900 !important;
+}
+
+.travel-planner-page.is-mobile .topbar-subtitle {
+  font-size: 14px !important;
+  line-height: 1.45 !important;
+}
+
+.travel-planner-page.is-mobile .model-status-bar {
+  margin-top: 8px;
+  font-size: 13px !important;
+  max-width: 100%;
+}
+
+.travel-planner-page.is-mobile .topbar-center {
+  display: none !important;
+}
+
+.travel-planner-page.is-mobile .topbar-actions {
+  display: flex !important;
+  flex-shrink: 0;
+  align-items: stretch;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 148px;
+}
+
+.travel-planner-page.is-mobile .font-size-switch {
+  order: 2;
+  width: 100%;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 34px;
+  height: auto;
+  padding: 3px;
+  overflow: hidden;
+  flex-wrap: nowrap;
+  gap: 2px;
+}
+
+.travel-planner-page.is-mobile .font-size-switch .font-label {
+  display: none;
+}
+
+.travel-planner-page.is-mobile .font-size-switch button {
+  min-height: 28px;
+  height: 28px;
+  min-width: 0;
+  flex: 1 1 0;
+  padding: 0 2px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.travel-planner-page.is-mobile .model-config-btn {
+  min-height: 36px;
+  height: auto;
+  padding: 6px 10px;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  order: 1;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.travel-planner-page.is-mobile .model-config-btn .btn-main {
+  font-size: 13px;
+}
+
+.travel-planner-page.is-mobile .model-config-btn .btn-status {
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
+.travel-planner-page.is-mobile .model-status-bar {
+  margin-top: 6px;
+  font-size: 12px !important;
+  line-height: 1.4;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.travel-planner-page.is-mobile .plan-mode-card {
+  min-height: 72px !important;
+  padding: 12px 14px !important;
+}
+
+.travel-planner-page.is-mobile .plan-mode-cards {
+  grid-template-columns: 1fr 1fr !important;
+  gap: 10px !important;
+}
+
+.travel-planner-page.is-mobile .travel-workspace {
+  display: flex !important;
+  flex-direction: column !important;
+  height: auto !important;
+  overflow: visible !important;
+  grid-template-columns: none !important;
+  grid-template-rows: none !important;
+}
+
+.travel-planner-page.is-mobile .travel-splitter,
+.travel-planner-page.is-mobile .travel-sidebar-actions,
+.travel-planner-page.is-mobile .trip-action-area {
+  display: none !important;
+}
+
+.travel-planner-page.is-mobile .travel-sidebar,
+.travel-planner-page.is-mobile .travel-config-panel,
+.travel-planner-page.is-mobile .travel-guide-main,
+.travel-planner-page.is-mobile .travel-canvas {
+  width: 100% !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: visible !important;
+  border-right: none !important;
+  background: transparent !important;
+  backdrop-filter: none !important;
+}
+
+.travel-planner-page.is-mobile .travel-sidebar-scroll {
+  overflow: visible !important;
+  padding: 12px !important;
+}
+
+.travel-planner-page.is-mobile .travel-guide-scroll {
+  height: auto !important;
+  overflow: visible !important;
+  overflow-x: hidden !important;
+  padding: 12px 12px calc(28px + env(safe-area-inset-bottom)) !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.travel-planner-page.is-mobile .travel-guide-inner,
+.travel-planner-page.is-mobile .travel-canvas-inner {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+}
+
+/* —— 卡片 / 标题 —— */
+.travel-planner-page.is-mobile .config-card,
+.travel-planner-page.is-mobile .form-card,
+.travel-planner-page.is-mobile .trip-config-card,
+.travel-planner-page.is-mobile .guide-section,
+.travel-planner-page.is-mobile .result-card {
+  width: 100% !important;
+  padding: 18px !important;
+  border-radius: 16px !important;
+  margin-bottom: 16px !important;
+}
+
+.travel-planner-page.is-mobile .form-card-title,
+.travel-planner-page.is-mobile .config-card-title,
+.travel-planner-page.is-mobile .section-title,
+.travel-planner-page.is-mobile .guide-section-title {
+  font-size: 20px !important;
+  font-weight: 800 !important;
+  line-height: 1.35 !important;
+}
+
+.travel-planner-page.is-mobile .form-card-desc,
+.travel-planner-page.is-mobile .config-card-desc,
+.travel-planner-page.is-mobile .section-desc,
+.travel-planner-page.is-mobile .gh-pages-hint,
+.travel-planner-page.is-mobile .form-help,
+.travel-planner-page.is-mobile .smart-tip-card,
+.travel-planner-page.is-mobile .info-tip-card {
+  font-size: 16px !important;
+  line-height: 1.65 !important;
+}
+
+.travel-planner-page.is-mobile .form-label,
+.travel-planner-page.is-mobile .bar-label,
+.travel-planner-page.is-mobile .walk-label,
+.travel-planner-page.is-mobile .calendar-label {
+  font-size: 17px !important;
+  font-weight: 700 !important;
+  margin-bottom: 10px !important;
+  line-height: 1.4 !important;
+}
+
+/* —— 单列 —— */
+.travel-planner-page.is-mobile .form-grid,
+.travel-planner-page.is-mobile .field-grid,
+.travel-planner-page.is-mobile .option-grid,
+.travel-planner-page.is-mobile .bar-row-2,
+.travel-planner-page.is-mobile .hotel-grid,
+.travel-planner-page.is-mobile .inspiration-routes,
+.travel-planner-page.is-mobile .meta-grid,
+.travel-planner-page.is-mobile .info-grid,
+.travel-planner-page.is-mobile .distance-options {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 14px !important;
+}
+
+.travel-planner-page.is-mobile .overview-grid {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 10px !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+}
+
+.travel-planner-page.is-mobile .overview-item,
+.travel-planner-page.is-mobile .overview-value,
+.travel-planner-page.is-mobile .guide-section,
+.travel-planner-page.is-mobile .plan-result,
+.travel-planner-page.is-mobile .guide-content,
+.travel-planner-page.is-mobile .guide-preview,
+.travel-planner-page.is-mobile .day-card,
+.travel-planner-page.is-mobile .trip-day-card,
+.travel-planner-page.is-mobile .spot-detail-card,
+.travel-planner-page.is-mobile .hotel-card,
+.travel-planner-page.is-mobile .dep-card,
+.travel-planner-page.is-mobile .route-card {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  box-sizing: border-box !important;
+}
+
+.travel-planner-page.is-mobile .overview-value,
+.travel-planner-page.is-mobile .guide-cover-title,
+.travel-planner-page.is-mobile .text,
+.travel-planner-page.is-mobile .reason,
+.travel-planner-page.is-mobile .desc,
+.travel-planner-page.is-mobile .tips,
+.travel-planner-page.is-mobile .summary {
+  white-space: normal !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+/* 结果区防撑开：图片 / 表格 / 代码 */
+.travel-planner-page.is-mobile .guide-content,
+.travel-planner-page.is-mobile .plan-result,
+.travel-planner-page.is-mobile #travel-route-report {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-width: 0 !important;
+  overflow-x: hidden !important;
+}
+
+.travel-planner-page.is-mobile .guide-content img,
+.travel-planner-page.is-mobile .plan-result img,
+.travel-planner-page.is-mobile .scenic-image img {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+}
+
+.travel-planner-page.is-mobile .guide-content table,
+.travel-planner-page.is-mobile .plan-result table,
+.travel-planner-page.is-mobile .cost-table {
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+  overflow-x: auto !important;
+}
+
+.travel-planner-page.is-mobile .guide-content pre,
+.travel-planner-page.is-mobile .guide-content code,
+.travel-planner-page.is-mobile .plan-result pre,
+.travel-planner-page.is-mobile .plan-result code {
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+  overflow-wrap: anywhere !important;
+}
+
+.travel-planner-page.is-mobile .dep-grid,
+.travel-planner-page.is-mobile .spot-grid,
+.travel-planner-page.is-mobile .budget-grid,
+.travel-planner-page.is-mobile .info-grid,
+.travel-planner-page.is-mobile .packing-list,
+.travel-planner-page.is-mobile .hotel-list {
+  display: grid !important;
+  grid-template-columns: 1fr !important;
+  gap: 12px !important;
+  width: 100% !important;
+  min-width: 0 !important;
+}
+
+.travel-planner-page.is-mobile .spot-detail-card {
+  grid-template-columns: 1fr !important;
+}
+
+.travel-planner-page.is-mobile .spot-detail-card .img-wrap {
+  width: 100% !important;
+  height: auto !important;
+  min-height: 160px;
+}
+
+/* —— 芯片 / 选项按钮（覆盖组件内 12px） —— */
+.travel-planner-page.is-mobile .tag-group,
+.travel-planner-page.is-mobile .chip-group,
+.travel-planner-page.is-mobile .quick-options,
+.travel-planner-page.is-mobile .trip-chip-group,
+.travel-planner-page.is-mobile .day-pill-group,
+.travel-planner-page.is-mobile .bar-content,
+.travel-planner-page.is-mobile .option-group {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 12px !important;
+}
+
+.travel-planner-page.is-mobile .trip-chip,
+.travel-planner-page.is-mobile .tag-item,
+.travel-planner-page.is-mobile .chip-item,
+.travel-planner-page.is-mobile .option-btn,
+.travel-planner-page.is-mobile .tag-btn,
+.travel-planner-page.is-mobile .segmented-item,
+.travel-planner-page.is-mobile .distance-options .segmented-item {
+  height: auto !important;
+  min-height: 46px !important;
+  min-width: 56px !important;
+  padding: 10px 16px !important;
+  font-size: 16px !important;
+  line-height: 1.35 !important;
+  border-radius: 999px !important;
+  white-space: normal !important;
+}
+
+.travel-planner-page.is-mobile .plan-mode-card {
+  padding: 16px !important;
+}
+
+.travel-planner-page.is-mobile .plan-mode-card strong {
+  font-size: 17px !important;
+}
+
+.travel-planner-page.is-mobile .plan-mode-card span {
+  font-size: 15px !important;
+  line-height: 1.5 !important;
+}
+
+.travel-planner-page.is-mobile .segmented-control.cols-3,
+.travel-planner-page.is-mobile .segmented-control.cols-4 {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+/* —— Element Plus：覆盖 default / small，强制大控件 —— */
+.travel-planner-page.is-mobile .el-input,
+.travel-planner-page.is-mobile .el-select,
+.travel-planner-page.is-mobile .el-date-editor,
+.travel-planner-page.is-mobile .el-input-number,
+.travel-planner-page.is-mobile .el-textarea {
+  width: 100% !important;
+  max-width: 100% !important;
+  font-size: 17px !important;
+}
+
+.travel-planner-page.is-mobile .el-input__wrapper,
+.travel-planner-page.is-mobile .el-select__wrapper,
+.travel-planner-page.is-mobile .el-date-editor .el-input__wrapper,
+.travel-planner-page.is-mobile .el-input--small .el-input__wrapper,
+.travel-planner-page.is-mobile .el-input--default .el-input__wrapper,
+.travel-planner-page.is-mobile .el-select--small .el-select__wrapper,
+.travel-planner-page.is-mobile .el-date-editor--small .el-input__wrapper {
+  min-height: 48px !important;
+  padding: 4px 14px !important;
+  border-radius: 12px !important;
+  font-size: 17px !important;
+}
+
+.travel-planner-page.is-mobile .el-input__inner,
+.travel-planner-page.is-mobile .el-select__placeholder,
+.travel-planner-page.is-mobile .el-select__selected-item,
+.travel-planner-page.is-mobile .el-range-input,
+.travel-planner-page.is-mobile .el-range-separator,
+.travel-planner-page.is-mobile .el-input--small .el-input__inner,
+.travel-planner-page.is-mobile .el-date-editor .el-range-input {
+  font-size: 17px !important;
+  height: auto !important;
+  line-height: 1.4 !important;
+}
+
+.travel-planner-page.is-mobile .el-textarea__inner {
+  min-height: 110px !important;
+  font-size: 17px !important;
+  line-height: 1.65 !important;
+  border-radius: 12px !important;
+  padding: 12px 14px !important;
+}
+
+.travel-planner-page.is-mobile .el-form-item__label {
+  font-size: 17px !important;
+  line-height: 1.4 !important;
+  height: auto !important;
+}
+
+.travel-planner-page.is-mobile .el-button,
+.travel-planner-page.is-mobile .el-button--small,
+.travel-planner-page.is-mobile .el-button--default {
+  min-height: 44px !important;
+  padding: 10px 16px !important;
+  font-size: 16px !important;
+  border-radius: 12px !important;
+}
+
+.travel-planner-page.is-mobile .el-radio-button__inner,
+.travel-planner-page.is-mobile .el-checkbox-button__inner,
+.travel-planner-page.is-mobile .el-radio-button--small .el-radio-button__inner {
+  min-height: 44px !important;
+  padding: 10px 16px !important;
+  font-size: 16px !important;
+  line-height: 1.35 !important;
+}
+
+.travel-planner-page.is-mobile .el-input-number {
+  width: 100% !important;
+}
+
+.travel-planner-page.is-mobile .el-input-number .el-input__wrapper {
+  min-height: 48px !important;
+}
+
+.travel-planner-page.is-mobile .el-input-number__decrease,
+.travel-planner-page.is-mobile .el-input-number__increase {
+  width: 40px !important;
+  font-size: 18px !important;
+}
+
+.travel-planner-page.is-mobile .el-collapse-item__header {
+  font-size: 17px !important;
+  height: 52px !important;
+  line-height: 52px !important;
+  font-weight: 800 !important;
+}
+
+.travel-planner-page.is-mobile .date-picker-full,
+.travel-planner-page.is-mobile .el-date-editor {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+/* —— 空态 / 结果 —— */
+.travel-planner-page.is-mobile .empty-tip h3,
+.travel-planner-page.is-mobile .guide-cover-title {
+  font-size: 24px !important;
+  line-height: 1.35 !important;
+}
+
+.travel-planner-page.is-mobile .empty-tip p,
+.travel-planner-page.is-mobile .empty-tip li,
+.travel-planner-page.is-mobile .inspiration-route-card p,
+.travel-planner-page.is-mobile .guide-cover-summary,
+.travel-planner-page.is-mobile .subtitle {
+  font-size: 16px !important;
+  line-height: 1.7 !important;
+}
+
+.travel-planner-page.is-mobile .guide-section,
+.travel-planner-page.is-mobile .day-card,
+.travel-planner-page.is-mobile .trip-day-card,
+.travel-planner-page.is-mobile .spot-detail-card,
+.travel-planner-page.is-mobile .hotel-card,
+.travel-planner-page.is-mobile .route-card,
+.travel-planner-page.is-mobile .text,
+.travel-planner-page.is-mobile .tips,
+.travel-planner-page.is-mobile .summary,
+.travel-planner-page.is-mobile .reason,
+.travel-planner-page.is-mobile .desc,
+.travel-planner-page.is-mobile .sub,
+.travel-planner-page.is-mobile .loc,
+.travel-planner-page.is-mobile .area,
+.travel-planner-page.is-mobile .meta,
+.travel-planner-page.is-mobile .city,
+.travel-planner-page.is-mobile .overview-label,
+.travel-planner-page.is-mobile .calendar-hint,
+.travel-planner-page.is-mobile .calendar-desc,
+.travel-planner-page.is-mobile .tips-section ul,
+.travel-planner-page.is-mobile .list-section ul,
+.travel-planner-page.is-mobile .suggest-section ul {
+  font-size: 17px !important;
+  line-height: 1.75 !important;
+}
+
+.travel-planner-page.is-mobile .overview-value,
+.travel-planner-page.is-mobile .day-head h4 {
+  font-size: 19px !important;
+}
+
+.travel-planner-page.is-mobile .guide-cover,
+.travel-planner-page.is-mobile .empty-trip-state,
+.travel-planner-page.is-mobile .empty-trip-card {
+  min-height: auto !important;
+  padding: 24px 18px !important;
+  border-radius: 16px !important;
+}
+
+.travel-planner-page.is-mobile .calendar-tools,
+.travel-planner-page.is-mobile .calendar-actions,
+.travel-planner-page.is-mobile .day-head,
+.travel-planner-page.is-mobile .day-head-actions {
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 10px !important;
+}
+
+.travel-planner-page.is-mobile .calendar-actions .el-button,
+.travel-planner-page.is-mobile .day-head-actions .el-button {
+  width: 100% !important;
+  margin-left: 0 !important;
+}
+
+.travel-planner-page.is-mobile .tl-item,
+.travel-planner-page.is-mobile .trip-timeline-item {
+  grid-template-columns: 1fr !important;
+}
+
+.travel-planner-page.is-mobile .mobile-collapse {
+  margin-bottom: 14px;
+}
+
+.travel-planner-page.is-mobile .mobile-collapse .el-collapse-item__header {
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 14px;
+  padding: 0 16px;
+  border: 1px solid #e2e8f0;
+}
+
+.travel-planner-page.is-mobile .mobile-collapse .el-collapse-item__wrap {
+  background: transparent;
+  border: none;
+}
+
+.travel-planner-page.is-mobile .mobile-collapse .el-collapse-item__content {
+  padding: 12px 0 0;
+}
+
+.travel-planner-page.is-mobile .mobile-result-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 12px;
+}
+
+/* 兼容：媒体查询兜底（无 is-mobile class 时） */
+@media (max-width: 767px) {
+  html {
+    font-size: 17px;
+    -webkit-text-size-adjust: 100%;
+  }
+}

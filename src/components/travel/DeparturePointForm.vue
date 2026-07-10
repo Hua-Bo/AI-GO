@@ -208,4 +208,27 @@ const carHint = {
   font-size: 18px;
   font-weight: 600;
 }
+
+@media (max-width: 900px) {
+  .card-title { font-size: 18px; }
+  .field-label { font-size: 17px; margin-bottom: 10px; }
+  .field-hint { font-size: 15px; line-height: 1.6; }
+  .seg-btn {
+    min-width: 88px;
+    min-height: 72px;
+    padding: 14px 12px;
+    font-size: 15px;
+  }
+  .seg-btn-sm {
+    min-height: 46px;
+    min-width: 110px;
+    font-size: 16px;
+  }
+  .seg-icon { font-size: 24px; }
+  .people-stepper {
+    min-height: 48px;
+    padding: 8px 14px;
+  }
+  .people-num { font-size: 20px; }
+}
 </style>

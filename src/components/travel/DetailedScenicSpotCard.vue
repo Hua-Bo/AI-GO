@@ -12,6 +12,11 @@ defineProps<{ spot: DetailedScenicSpot }>()
       <ScenicImage
         :src="spot.image"
         :alt="spot.name"
+        :name="spot.name"
+        :city="spot.city"
+        :province="spot.province"
+        :spot-type="spot.spotType"
+        :image-keyword="spot.imageKeyword"
         :status="spot.imageStatus"
         :image-source="spot.imageSource"
       />

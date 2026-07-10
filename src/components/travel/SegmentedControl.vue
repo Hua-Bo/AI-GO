@@ -44,13 +44,13 @@ const emit = defineEmits<{
 .segmented-control.cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .segmented-item {
   min-width: 0;
-  height: 36px;
-  padding: 0 10px;
+  height: 40px;
+  padding: 0 12px;
   border-radius: 12px;
   border: 1px solid #e2e8f0;
   background: #ffffff;
   color: #475569;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 700;
   white-space: nowrap;
   overflow: hidden;
@@ -67,5 +67,20 @@ const emit = defineEmits<{
   background: linear-gradient(135deg, #2563eb, #06b6d4);
   color: #ffffff;
   box-shadow: 0 8px 18px rgba(37, 99, 235, 0.22);
+}
+
+@media (max-width: 900px) {
+  .segmented-control.cols-3,
+  .segmented-control.cols-4 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .segmented-item {
+    height: auto !important;
+    min-height: 46px !important;
+    padding: 10px 14px !important;
+    font-size: 16px !important;
+    white-space: normal;
+    line-height: 1.35;
+  }
 }
 </style>

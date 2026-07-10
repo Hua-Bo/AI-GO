@@ -13,10 +13,10 @@ defineProps<{
 }>()
 
 const accommodationOptions = [
-  { label: 'AI 判断', value: 'auto' as const },
-  { label: '每天回家', value: 'homeEveryDay' as const },
-  { label: '需要酒店', value: 'hotelNeeded' as const },
-  { label: '尽量不住', value: 'noHotelPreferred' as const },
+  { label: '智能判断', value: 'auto' as const },
+  { label: '不住酒店，当天返回', value: 'homeEveryDay' as const },
+  { label: '想住一晚，推荐酒店', value: 'hotelNeeded' as const },
+  { label: '尽量不住酒店', value: 'noHotelPreferred' as const },
   { label: '露营/车宿', value: 'campingOrCar' as const },
 ]
 
@@ -198,5 +198,23 @@ function enableCustomDistance() {
   background: #eff6ff;
   border: 1px solid #bfdbfe;
   color: #1d4ed8;
+}
+
+@media (max-width: 900px) {
+  .distance-options {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .distance-options .segmented-item {
+    height: auto !important;
+    min-height: 46px !important;
+    padding: 12px 16px !important;
+    font-size: 16px !important;
+    white-space: normal;
+  }
+  .info-tip-card {
+    font-size: 16px;
+    line-height: 1.65;
+  }
 }
 </style>

@@ -41,7 +41,9 @@ const typeLabel: Record<string, string> = {
       <span class="spots-label">当日景区</span>
       <div class="spot-chips">
         <div v-for="(s, i) in day.scenicSpots" :key="i" class="spot-chip">
-          <div class="spot-thumb"><ScenicImage :src="s.image" :alt="s.name" /></div>
+          <div class="spot-thumb">
+            <ScenicImage :src="s.image" :alt="s.name" :name="s.name" />
+          </div>
           <span>{{ s.name }}</span>
         </div>
       </div>

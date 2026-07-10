@@ -81,9 +81,22 @@ async function searchWikimediaOnce(keyword: string): Promise<WikiHit | null> {
   }
 }
 
-function keywordVariants(keyword: string): string[] {
-  const k = keyword.trim()
-  return [...new Set([k, `${k} 风景`, `${k} 景区`].filter(Boolean))]
+function keywordVariants(spot: Pick<DetailedScenicSpot, 'province' | 'city' | 'name' | 'spotType' | 'imageKeyword'>, keyword: string): string[] {
+  const name = spot.name || ''
+  const city = spot.city || ''
+  const province = spot.province || ''
+  return [...new Set([
+    keyword.trim(),
+    spot.imageKeyword?.trim(),
+    `${city} ${name} 景区`,
+    `${city} ${name} 风景`,
+    `${name} 旅游`,
+    `${name} 门票`,
+    `${city} 旅游景点`,
+    `${province} ${city} ${name}`,
+    `${name} 风景`,
+    `${name} 景区`,
+  ].filter((k): k is string => Boolean(k && k.trim())))]
 }
 
 async function searchCustomApi(keywords: string[]): Promise<Record<string, string> | null> {
@@ -102,54 +115,90 @@ async function searchCustomApi(keywords: string[]): Promise<Record<string, strin
   }
 }
 
+export async function checkImageAvailable(url: string): Promise<boolean> {
+  return new Promise((resolve) => {
+    const img = new Image()
+    img.onload = () => resolve(img.naturalWidth > 240 && img.naturalHeight > 160)
+    img.onerror = () => resolve(false)
+    img.src = url
+  })
+}
+
 export async function getScenicImage(
   spot: Pick<DetailedScenicSpot, 'province' | 'city' | 'name' | 'spotType' | 'imageKeyword'>,
 ): Promise<ScenicImageResult> {
   const keyword = spot.imageKeyword || buildScenicImageKeyword(spot)
-  if (!keyword.trim()) {
+  if (!keyword.trim() && !spot.name) {
     return { url: '', source: '', status: 'noReliableImage', relevanceScore: 0 }
   }
-  if (imageCache.has(keyword)) return imageCache.get(keyword)!
+  const cacheKey = keyword || `${spot.city}-${spot.name}`
+  if (imageCache.has(cacheKey)) return imageCache.get(cacheKey)!
 
-  const custom = await searchCustomApi([keyword])
-  if (custom?.[keyword]) {
-    const check = isImageLikelyRelevant({
-      keyword, spotName: spot.name, city: spot.city, imageUrl: custom[keyword],
-    })
-    const result: ScenicImageResult = {
-      url: check.relevant ? custom[keyword] : '',
-      source: check.relevant ? '网络搜索' : '',
-      status: check.relevant ? (check.score >= 0.7 ? 'ok' : 'uncertain') : 'noReliableImage',
-      relevanceScore: check.score,
+  const variants = keywordVariants(spot, keyword)
+  const custom = await searchCustomApi(variants)
+  if (custom) {
+    for (const kw of variants) {
+      const url = custom[kw]
+      if (!url) continue
+      const ok = await checkImageAvailable(url)
+      if (!ok) continue
+      const check = isImageLikelyRelevant({
+        keyword: kw, spotName: spot.name, city: spot.city, imageUrl: url,
+      })
+      // 放宽：只要能加载且不是明显无关图标，就展示
+      if (check.score >= 0.35 || ok) {
+        const result: ScenicImageResult = {
+          url,
+          source: '网络搜索',
+          status: check.score >= 0.7 ? 'ok' : 'uncertain',
+          relevanceScore: check.score,
+        }
+        imageCache.set(cacheKey, result)
+        return result
+      }
     }
-    imageCache.set(keyword, result)
-    return result
   }
 
-  for (const variant of keywordVariants(keyword)) {
+  for (const variant of variants) {
     const hit = await searchWikimediaOnce(variant)
     if (!hit) continue
     const check = isImageLikelyRelevant({
-      keyword,
+      keyword: variant,
       spotName: spot.name,
       city: spot.city,
       imageTitle: hit.title,
       imageUrl: hit.url,
     })
-    if (check.score >= 0.5) {
+    // 放宽阈值：优先展示，标为 uncertain 也可
+    if (check.score >= 0.3 || (spot.name && (hit.title || '').includes(spot.name.slice(0, 2)))) {
       const result: ScenicImageResult = {
         url: hit.url,
         source: 'Wikimedia',
         status: check.score >= 0.7 ? 'ok' : 'uncertain',
         relevanceScore: check.score,
       }
-      imageCache.set(keyword, result)
+      imageCache.set(cacheKey, result)
+      return result
+    }
+  }
+
+  // 最后再试一次纯景区名
+  if (spot.name) {
+    const hit = await searchWikimediaOnce(spot.name)
+    if (hit) {
+      const result: ScenicImageResult = {
+        url: hit.url,
+        source: 'Wikimedia',
+        status: 'uncertain',
+        relevanceScore: 0.4,
+      }
+      imageCache.set(cacheKey, result)
       return result
     }
   }
 
   const empty: ScenicImageResult = { url: '', source: '', status: 'noReliableImage', relevanceScore: 0 }
-  imageCache.set(keyword, empty)
+  imageCache.set(cacheKey, empty)
   return empty
 }
 

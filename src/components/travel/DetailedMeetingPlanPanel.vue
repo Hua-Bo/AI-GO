@@ -110,8 +110,11 @@ function transportIcon(type: string) {
 .icon { font-size: 20px; }
 .time-row { display: flex; flex-wrap: wrap; gap: 12px; font-size: 12px; color: var(--travel-text-secondary); margin-bottom: 8px; }
 .desc { margin: 0 0 10px; line-height: 1.55; }
-.cost-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; }
-.cost-table td { padding: 6px 10px; border-bottom: 1px solid var(--travel-border); }
+.cost-table { width: 100%; max-width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 10px; }
+.cost-table td { padding: 6px 10px; border-bottom: 1px solid var(--travel-border); word-break: break-word; }
+@media (max-width: 768px) {
+  .cost-table { display: block; overflow-x: auto; }
+}
 .total-row td { border-top: 2px solid var(--travel-border); }
 .steps { margin: 8px 0; padding-left: 20px; font-size: 12px; line-height: 1.55; }
 .charge-box { padding: 10px; background: #ecfdf5; border-radius: 8px; margin: 8px 0; font-size: 12px; }

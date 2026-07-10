@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import type { ImageStatus } from '@/types/travelTypes'
+import { buildScenicImageKeyword, getScenicImage } from '@/services/travelImageApi'
 
 const props = defineProps<{
   src?: string
@@ -9,9 +10,24 @@ const props = defineProps<{
   height?: number | string
   status?: ImageStatus
   imageSource?: string
+  city?: string
+  name?: string
+  province?: string
+  spotType?: string
+  imageKeyword?: string
+}>()
+
+const emit = defineEmits<{
+  (e: 'update:src', value: string): void
+  (e: 'update:status', value: ImageStatus): void
+  (e: 'update:imageSource', value: string): void
 }>()
 
 const imageError = ref(false)
+const loading = ref(false)
+const localSrc = ref('')
+const localStatus = ref<ImageStatus | undefined>(props.status)
+const localSource = ref(props.imageSource || '')
 
 function isValidSrc(src?: string): boolean {
   if (!src) return false
@@ -19,45 +35,96 @@ function isValidSrc(src?: string): boolean {
   return Boolean(t) && t !== 'undefined' && t !== 'null'
 }
 
-const hasValidImage = computed(() =>
-  isValidSrc(props.src) && !imageError.value,
-)
+const displaySrc = computed(() => localSrc.value || props.src)
+const hasValidImage = computed(() => isValidSrc(displaySrc.value) && !imageError.value)
 
-const placeholderTitle = computed(() =>
-  props.status === 'noReliableImage' ? '暂无可靠图片' : '暂无图片',
-)
+const searchKeyword = computed(() => {
+  if (props.imageKeyword?.trim()) return props.imageKeyword.trim()
+  const name = props.name || props.title || props.alt || ''
+  const city = props.city || ''
+  if (name && city) return `${city} ${name} 景区`
+  if (name) return `${name} 旅游`
+  return '旅游景点 风景'
+})
 
-const placeholderDesc = computed(() =>
-  props.status === 'noReliableImage' ? '已避免展示不相关图片' : '景区图片获取失败',
-)
-
-watch(() => props.src, () => {
+watch(() => props.src, (v) => {
   imageError.value = false
+  localSrc.value = v || ''
+})
+
+watch(() => props.status, (v) => {
+  localStatus.value = v
+})
+
+watch(() => props.imageSource, (v) => {
+  localSource.value = v || ''
 })
 
 function handleImageError() {
   imageError.value = true
 }
+
+function openImageSearch() {
+  window.open(`https://www.bing.com/images/search?q=${encodeURIComponent(searchKeyword.value)}`, '_blank')
+}
+
+async function retrySearch() {
+  if (loading.value) return
+  loading.value = true
+  imageError.value = false
+  try {
+    const result = await getScenicImage({
+      name: props.name || props.title || props.alt || searchKeyword.value,
+      city: props.city || '',
+      province: props.province || '',
+      spotType: (props.spotType as any) || 'scenic',
+      imageKeyword: searchKeyword.value,
+    })
+    if (result.url) {
+      localSrc.value = result.url
+      localStatus.value = result.status
+      localSource.value = result.source
+      emit('update:src', result.url)
+      emit('update:status', result.status)
+      emit('update:imageSource', result.source)
+    } else {
+      localStatus.value = 'noReliableImage'
+      openImageSearch()
+    }
+  } finally {
+    loading.value = false
+  }
+}
 </script>
 
 <template>
   <div class="scenic-image" :style="height ? { height: typeof height === 'number' ? `${height}px` : height } : undefined">
-    <template v-if="hasValidImage">
+    <template v-if="loading">
+      <div class="scenic-image-placeholder">
+        <div class="placeholder-icon">⏳</div>
+        <div class="placeholder-title">图片加载中...</div>
+      </div>
+    </template>
+    <template v-else-if="hasValidImage">
       <img
-        :src="src"
-        :alt="alt || title || '景区图片'"
+        :src="displaySrc"
+        :alt="alt || title || name || '景区图片'"
         crossorigin="anonymous"
         @error="handleImageError"
       >
-      <div v-if="imageSource || status === 'uncertain'" class="image-caption">
-        <span v-if="imageSource">图片来源：{{ imageSource }}</span>
-        <span v-if="status === 'uncertain'" class="uncertain">图片仅供参考</span>
+      <div v-if="localSource || localStatus === 'uncertain'" class="image-caption">
+        <span v-if="localSource">图片来源：{{ localSource }}</span>
+        <span v-if="localStatus === 'uncertain'" class="uncertain">图片仅供参考</span>
       </div>
     </template>
     <div v-else class="scenic-image-placeholder">
       <div class="placeholder-icon">🖼️</div>
-      <div class="placeholder-title">{{ placeholderTitle }}</div>
-      <div class="placeholder-desc">{{ placeholderDesc }}</div>
+      <div class="placeholder-title">暂未获取到可直接展示的图片</div>
+      <div class="placeholder-desc">可点击查看网络图片或重新搜索</div>
+      <div class="placeholder-actions">
+        <button type="button" class="retry-btn" @click="retrySearch">重新搜索图片</button>
+        <button type="button" class="search-btn" @click="openImageSearch">查看景区图片</button>
+      </div>
     </div>
   </div>
 </template>
@@ -104,9 +171,39 @@ function handleImageError() {
   justify-content: center;
   gap: 6px;
   color: #94a3b8;
+  padding: 12px;
+  text-align: center;
+  box-sizing: border-box;
 }
 
 .placeholder-icon { font-size: 28px; }
 .placeholder-title { font-size: 14px; font-weight: 600; color: #64748b; }
 .placeholder-desc { font-size: 12px; color: #94a3b8; }
+
+.placeholder-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 4px;
+}
+
+.retry-btn,
+.search-btn {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.search-btn {
+  background: #fff;
+  border-color: #e2e8f0;
+  color: #475569;
+}
 </style>

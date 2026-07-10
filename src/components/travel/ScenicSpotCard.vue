@@ -14,7 +14,14 @@ const emit = defineEmits<{ toggle: []; toggleExpand: [] }>()
 <template>
   <div class="spot-card" :class="{ selected, expanded }">
     <div class="spot-img-wrap" @click="emit('toggleExpand')">
-      <ScenicImage :src="spot.image" :alt="spot.name" class="spot-img-inner" />
+      <ScenicImage
+        :src="spot.image"
+        :alt="spot.name"
+        :name="spot.name"
+        :city="spot.city"
+        :image-keyword="spot.imageKeyword"
+        class="spot-img-inner"
+      />
       <el-checkbox class="spot-check" :model-value="selected" @click.stop @change="emit('toggle')" />
       <div class="spot-rating" v-if="spot.rating">★ {{ spot.rating }}</div>
     </div>

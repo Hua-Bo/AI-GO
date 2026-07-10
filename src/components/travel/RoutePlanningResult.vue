@@ -258,7 +258,14 @@ async function handleCopyAllReminders() {
 .overview-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }
 .overview-item { padding: 16px; border-radius: 18px; background: #f8fafc; border: 1px solid #e5e7eb; }
 .overview-label { font-size: 12px; color: #64748b; display: block; }
-.overview-value { margin-top: 8px; font-size: 16px; font-weight: 900; color: #172033; display: block; }
+.overview-value { margin-top: 8px; font-size: 16px; font-weight: 900; color: #172033; display: block; white-space: normal; line-height: 1.5; overflow-wrap: anywhere; word-break: break-word; }
+.plan-result,
+.guide-preview {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
 .text { font-size: 14px; line-height: 1.65; color: var(--travel-text-secondary); }
 .cities { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; margin-top: 8px; }
 .hotel-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
@@ -286,6 +293,104 @@ async function handleCopyAllReminders() {
   .overview-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 @media (max-width: 768px) {
-  .overview-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .guide-cover {
+    min-height: auto;
+    padding: 20px 16px;
+    border-radius: 14px;
+  }
+  .guide-cover-title {
+    font-size: 22px;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .subtitle,
+  .guide-cover-summary { font-size: 15px; line-height: 1.7; }
+  .cover-tag { height: 32px; font-size: 14px; padding: 0 12px; }
+  .guide-section {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 16px;
+    border-radius: 14px;
+    margin-bottom: 14px;
+    box-sizing: border-box;
+  }
+  .section-title { font-size: 18px; }
+  .overview-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+  .overview-item {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    padding: 14px;
+    border-radius: 12px;
+    box-sizing: border-box;
+  }
+  .overview-label { font-size: 14px; }
+  .overview-value {
+    font-size: 16px;
+    white-space: normal;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .text,
+  .tips-section ul,
+  .list-section ul,
+  .suggest-section ul,
+  .calendar-desc,
+  .budget-reference,
+  .hotel-card,
+  .hotel-card span,
+  .calendar-hint {
+    font-size: 16px !important;
+    line-height: 1.75;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+  .hotel-grid,
+  .cities {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+  }
+  .hotel-grid { grid-template-columns: 1fr; }
+  .calendar-tools,
+  .calendar-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .calendar-actions .el-button { width: 100%; min-height: 44px; font-size: 15px; }
+  .calendar-label { font-size: 15px; }
+  .calendar-limit { font-size: 14px; }
+  .plan-result,
+  .guide-preview {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: hidden;
+  }
+  .plan-result img,
+  .guide-preview img {
+    max-width: 100%;
+    height: auto;
+  }
+  .plan-result table,
+  .guide-preview table {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .plan-result pre,
+  .plan-result code {
+    white-space: pre-wrap;
+    word-break: break-word;
+    overflow-wrap: anywhere;
+  }
 }
 </style>

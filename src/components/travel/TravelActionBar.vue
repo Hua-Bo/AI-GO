@@ -46,7 +46,6 @@ const emit = defineEmits<{
     </el-button>
     <div class="action-secondary-row">
       <el-button size="small" @click="emit('reset')">重置</el-button>
-      <el-button size="small" @click="emit('openConfig')">AI 配置</el-button>
       <el-button v-if="hasParseError" size="small" @click="emit('retryCurrent')">重生成</el-button>
       <el-button v-if="isGenerating" size="small" type="danger" @click="emit('stop')">停止</el-button>
     </div>
@@ -59,7 +58,11 @@ const emit = defineEmits<{
       <el-button size="small" :disabled="!guideReady" :loading="exportingImage" @click="emit('exportImage')">长图</el-button>
       <el-button size="small" :disabled="!guideReady" :loading="exportingImagePlain" @click="emit('exportImagePlain')">无图长图</el-button>
     </div>
-    <div class="action-status">{{ hasApiKey ? '已配置本地 Key' : '未配置 API Key' }}</div>
+    <div class="action-status">
+      <div>{{ hasApiKey ? `当前模型：${modelName || '已配置'}` : '当前模型：未配置' }}</div>
+      <div>{{ hasApiKey ? 'Key 状态：已配置本地 Key' : 'Key 状态：未配置 API Key' }}</div>
+      <div>部署模式：GitHub Pages 浏览器直连</div>
+    </div>
   </div>
 </template>
 
@@ -75,9 +78,9 @@ const emit = defineEmits<{
 }
 .action-primary {
   width: 100%;
-  height: 42px;
+  height: 44px;
   border-radius: 14px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 900;
 }
 .action-secondary-row {
@@ -89,7 +92,7 @@ const emit = defineEmits<{
 .action-secondary-row :deep(.el-button) {
   margin-left: 0;
   width: 100%;
-  height: 32px;
+  height: 36px;
   border-radius: 10px;
   font-size: 12px;
   font-weight: 700;
@@ -110,7 +113,7 @@ const emit = defineEmits<{
   min-width: 0;
   margin-left: 0;
   width: 100%;
-  height: 32px;
+  height: 36px;
   border-radius: 10px;
   font-size: 12px;
   font-weight: 700;
@@ -123,10 +126,18 @@ const emit = defineEmits<{
   white-space: nowrap;
 }
 .action-status {
-  margin-top: 8px;
-  font-size: 11px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  font-size: 12px;
   color: #64748b;
-  text-align: center;
+  text-align: left;
+  line-height: 1.55;
+}
+.action-status div + div {
+  margin-top: 2px;
 }
 .sidebar-action-panel :deep(.el-button--primary) {
   border: none;

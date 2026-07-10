@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import type { AiModelConfig } from '@/types/travelTypes'
 import { AI_PROVIDER_DEFAULTS } from '@/composables/travel/useAiModelConfig'
 import { AiRequestError, testAiConnection } from '@/services/travelAiChat'
+import { useResponsive } from '@/composables/useResponsive'
 
 const visible = defineModel<boolean>('visible', { required: true })
 const config = defineModel<AiModelConfig>('config', { required: true })
@@ -13,10 +14,15 @@ const emit = defineEmits<{
   clear: []
 }>()
 
+const { isMobile } = useResponsive()
+
 const providers = Object.entries(AI_PROVIDER_DEFAULTS).map(([value, meta]) => ({
   value: value as AiModelConfig['provider'],
   label: meta.label,
 }))
+
+const showAdvanced = ref(false)
+const testing = ref(false)
 
 function onProviderChange(provider: AiModelConfig['provider']) {
   const d = AI_PROVIDER_DEFAULTS[provider]
@@ -40,7 +46,6 @@ function onEndpointModeChange(mode: 'openai' | 'anthropic') {
   }
 }
 
-const testing = ref(false)
 async function handleTestConnection() {
   if (!config.value.apiKey.trim()) {
     ElMessage.warning('请先填写你自己的 API Key')
@@ -78,69 +83,208 @@ function handleSave() {
   }
   emit('save', { ...config.value, requestMode: 'direct' })
   visible.value = false
+  ElMessage.success('配置已保存')
 }
 </script>
 
 <template>
-  <el-dialog v-model="visible" title="AI 模型配置" width="560px" destroy-on-close>
-    <el-alert
-      type="info"
-      :closable="false"
-      show-icon
-      class="deploy-alert"
-      title="GitHub Pages 静态部署 / 浏览器直连"
-      description="当前为 GitHub Pages 静态部署版：不内置任何 API Key，使用时请填写你自己的 Key。Key 只保存在当前浏览器 localStorage 中，不要在公共电脑保存。如果模型服务不支持浏览器跨域 CORS，请使用云服务器代理部署（见 DEPLOY.md）。"
-    />
-    <el-form label-position="top">
-      <el-form-item label="模型提供商">
-        <el-select :model-value="config.provider" style="width: 100%" @change="onProviderChange">
-          <el-option v-for="p in providers" :key="p.value" :label="p.label" :value="p.value" />
-        </el-select>
-      </el-form-item>
-      <el-form-item v-if="config.provider === 'longcat'" label="接口模式">
-        <el-radio-group :model-value="config.endpointMode || 'openai'" @change="onEndpointModeChange">
-          <el-radio-button value="openai">OpenAI 兼容</el-radio-button>
-          <el-radio-button value="anthropic">Anthropic 兼容</el-radio-button>
-        </el-radio-group>
-      </el-form-item>
-      <el-form-item label="Base URL">
-        <el-input v-model="config.baseURL" placeholder="https://api.longcat.chat/openai/v1" />
-      </el-form-item>
-      <el-form-item label="Model">
-        <el-input v-model="config.model" placeholder="LongCat-2.0" />
-      </el-form-item>
-      <el-form-item label="API Key">
-        <el-input
-          v-model="config.apiKey"
-          type="password"
-          show-password
-          placeholder="请填写你自己的 API Key"
-        />
-        <p class="hint">Key 只保存在当前浏览器 localStorage，浏览器直连模型时会出现在请求头中</p>
-      </el-form-item>
-      <el-form-item label="Temperature">
-        <el-input-number v-model="config.temperature" :min="0" :max="1" :step="0.1" />
-      </el-form-item>
-      <el-form-item label="Max Tokens">
-        <el-input-number v-model="config.maxTokens" :min="256" :max="32768" :step="256" />
-      </el-form-item>
-      <el-form-item v-if="config.provider === 'longcat'" label="LongCat Thinking">
-        <el-switch v-model="config.thinkingEnabled" />
-      </el-form-item>
-      <p v-if="config.provider === 'longcat'" class="hint">
-        LongCat 支持 OpenAI / Anthropic 兼容接口，本页面默认使用 OpenAI 格式调用。
-      </p>
-    </el-form>
+  <el-dialog
+    v-model="visible"
+    title="AI 模型配置"
+    class="model-config-dialog"
+    :class="{ 'is-mobile-drawer': isMobile }"
+    :width="isMobile ? '100%' : '520px'"
+    align-center
+    append-to-body
+    destroy-on-close
+    :close-on-click-modal="false"
+  >
+    <p class="short-hint">Key 仅保存在当前浏览器，不会上传到服务器。</p>
+
+    <div class="model-config-body">
+      <el-form label-position="top" class="compact-form">
+        <el-form-item label="模型提供商">
+          <el-select :model-value="config.provider" style="width: 100%" @change="onProviderChange">
+            <el-option v-for="p in providers" :key="p.value" :label="p.label" :value="p.value" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="Base URL">
+          <el-input v-model="config.baseURL" placeholder="https://api.longcat.chat/openai/v1" />
+        </el-form-item>
+        <el-form-item label="Model">
+          <el-input v-model="config.model" placeholder="LongCat-2.0" />
+        </el-form-item>
+        <el-form-item label="API Key">
+          <el-input
+            v-model="config.apiKey"
+            type="password"
+            show-password
+            placeholder="请填写你自己的 API Key"
+          />
+        </el-form-item>
+
+        <button type="button" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
+          高级设置 {{ showAdvanced ? '↑' : '↓' }}
+        </button>
+
+        <div v-if="showAdvanced" class="advanced-block">
+          <el-form-item v-if="config.provider === 'longcat'" label="接口模式">
+            <el-radio-group :model-value="config.endpointMode || 'openai'" @change="onEndpointModeChange">
+              <el-radio-button value="openai">OpenAI 兼容</el-radio-button>
+              <el-radio-button value="anthropic">Anthropic 兼容</el-radio-button>
+            </el-radio-group>
+          </el-form-item>
+          <el-form-item label="Temperature">
+            <el-input-number v-model="config.temperature" :min="0" :max="1" :step="0.1" />
+          </el-form-item>
+          <el-form-item label="Max Tokens">
+            <el-input-number v-model="config.maxTokens" :min="256" :max="32768" :step="256" />
+          </el-form-item>
+          <el-form-item v-if="config.provider === 'longcat'" label="LongCat Thinking">
+            <el-switch v-model="config.thinkingEnabled" />
+          </el-form-item>
+          <div class="advanced-actions">
+            <el-button :loading="testing" @click="handleTestConnection">测试连接</el-button>
+            <el-button @click="clearKey">清空配置</el-button>
+          </div>
+        </div>
+      </el-form>
+    </div>
+
     <template #footer>
-      <el-button :loading="testing" @click="handleTestConnection">测试连接</el-button>
-      <el-button @click="clearKey">清空 Key</el-button>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" @click="handleSave">保存配置</el-button>
+      <div class="model-config-footer">
+        <el-button @click="visible = false">取消</el-button>
+        <el-button type="primary" @click="handleSave">保存配置</el-button>
+      </div>
     </template>
   </el-dialog>
 </template>
 
 <style scoped>
-.deploy-alert { margin-bottom: 16px; }
-.hint { margin: 6px 0 0; font-size: 12px; color: var(--travel-text-secondary); }
+.short-hint {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: #64748b;
+  line-height: 1.5;
+}
+
+.model-config-body {
+  max-height: min(420px, calc(100vh - 220px));
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.compact-form :deep(.el-form-item) {
+  margin-bottom: 12px;
+}
+
+.compact-form :deep(.el-form-item__label) {
+  margin-bottom: 4px !important;
+  font-weight: 700;
+}
+
+.advanced-toggle {
+  display: block;
+  width: 100%;
+  margin: 4px 0 10px;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
+  color: #2563eb;
+  font-size: 14px;
+  font-weight: 700;
+  text-align: left;
+  cursor: pointer;
+}
+
+.advanced-block {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+}
+
+.advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.model-config-footer {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  width: 100%;
+}
+</style>
+
+<style>
+.model-config-dialog.el-dialog {
+  width: min(520px, calc(100vw - 48px)) !important;
+  max-width: calc(100vw - 48px);
+  max-height: min(720px, calc(100vh - 80px));
+  border-radius: 20px;
+  overflow: hidden;
+  margin: 0 auto !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.model-config-dialog .el-dialog__header {
+  padding: 16px 20px 8px;
+  flex-shrink: 0;
+}
+
+.model-config-dialog .el-dialog__body {
+  padding: 4px 20px 8px;
+  overflow: hidden;
+}
+
+.model-config-dialog .el-dialog__footer {
+  flex-shrink: 0;
+  padding: 12px 20px 16px;
+  background: #fff;
+  border-top: 1px solid #edf0f5;
+}
+
+/* 手机端：底部抽屉 */
+@media (max-width: 768px) {
+  .model-config-dialog.el-dialog,
+  .model-config-dialog.is-mobile-drawer.el-dialog {
+    width: 100% !important;
+    max-width: 100% !important;
+    max-height: 75vh !important;
+    margin: 0 !important;
+    position: fixed !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    top: auto !important;
+    transform: none !important;
+    border-radius: 20px 20px 0 0;
+  }
+
+  .model-config-dialog .el-dialog__body .model-config-body,
+  .model-config-dialog .model-config-body {
+    max-height: calc(75vh - 140px);
+  }
+
+  .model-config-dialog .el-dialog__footer {
+    padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  }
+}
+
+/* 覆盖 Element Plus 默认 margin-top，保证 PC 居中 */
+.el-overlay-dialog:has(.model-config-dialog) {
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 768px) {
+  .el-overlay-dialog:has(.model-config-dialog) {
+    align-items: flex-end;
+  }
+}
 </style>

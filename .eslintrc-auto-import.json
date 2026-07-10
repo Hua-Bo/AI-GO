@@ -234,6 +234,7 @@
     "canShareFile": "readonly",
     "copyReminderText": "readonly",
     "copyAllReminderText": "readonly",
-    "copyDayReminderText": "readonly"
+    "copyDayReminderText": "readonly",
+    "useResponsive": "readonly"
   }
 }

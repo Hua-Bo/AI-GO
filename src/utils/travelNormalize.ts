@@ -426,7 +426,7 @@ function forceHomeHotel(day: DetailedDailyPlan, homeBase: string): DetailedDaily
       type: 'home',
       city: homeBase || '家',
       area: '回家过夜',
-      reason: '本地/周边短途行程，距离常住地较近，无需额外住宿。',
+      reason: '建议当天返回家中休息。本地/近郊行程距离常住地较近，无需额外住宿。',
       priceRange: '0元',
       bookingTips: ['无需预订酒店', '建议提前确认第二天出发时间'],
     },
@@ -437,11 +437,28 @@ function forceHomeHotel(day: DetailedDailyPlan, homeBase: string): DetailedDaily
   }
 }
 
+function isNearHomeHotelSuggestion(day: DetailedDailyPlan, homeBase: string): boolean {
+  const home = homeBase || ''
+  const overnight = `${day.overnightCity || ''} ${day.hotelSuggestion?.city || ''} ${day.hotelSuggestion?.area || ''}`
+  if (!home) return false
+  // 用户住滨湖/无锡时，不要推荐滨湖区或无锡市区酒店
+  if ((home.includes('滨湖') || home.includes('无锡')) && (overnight.includes('滨湖') || overnight.includes('无锡'))) {
+    return true
+  }
+  return overnight.includes(home) || (home.includes('无锡') && overnight.includes('无锡'))
+}
+
 function normalizeHotelByContext(day: DetailedDailyPlan, params: RoutePlanningParams, localShortTrip: boolean): DetailedDailyPlan {
-  if (!localShortTrip && params.accommodationPreference.mode !== 'homeEveryDay') return day
   if (params.accommodationPreference.mode === 'hotelNeeded') return day
   const homeBase = params.accommodationPreference.homeBaseAddress || params.departurePoints[0]?.address || '家'
-  return forceHomeHotel(day, homeBase)
+  if (params.accommodationPreference.mode === 'homeEveryDay' || params.accommodationPreference.mode === 'noHotelPreferred' || localShortTrip) {
+    return forceHomeHotel(day, homeBase)
+  }
+  // 智能判断：若 AI 仍推荐了常住地附近酒店，强制改为回家过夜
+  if (params.accommodationPreference.mode === 'auto' && day.hotelSuggestion?.needed !== false && isNearHomeHotelSuggestion(day, homeBase)) {
+    return forceHomeHotel(day, homeBase)
+  }
+  return day
 }
 
 export function normalizeDailyBudget(raw: unknown): DailyBudget {
