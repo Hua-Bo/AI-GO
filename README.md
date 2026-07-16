@@ -132,3 +132,9 @@ AutoImport({
 ```
 
 
+
+## AI 农业种植助手
+
+详见 [docs/agri-assistant.md](./docs/agri-assistant.md)
+
+本地访问：`http://localhost:5173/#/agri-assistant`

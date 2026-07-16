@@ -455,7 +455,7 @@ ${daysSummary}
 如果用户偏好免费景区/低成本/避开高门票，门票预算必须明显降低，不要高估。
 无锡周边2日电车自驾且低成本场景，总预算通常应在600-1200附近（以实际为准）。
 如果每日行程为回家过夜或不住酒店，住宿预算应为0元，不得再计入酒店费用。
-必须包含：currency, perPersonEstimate, totalEstimate, items[]（category: transport/hotel/ticket/food/parking/charging/fuel/other）, notes[]。价格写区间并注明“以实际为准”。`,
+必须包含：currency, perPersonEstimate, totalEstimate, items[]（category: transport/hotel/ticket/food/parking/charging/fuel/other）, notes[]。perPersonEstimate 与 totalEstimate 必须是字符串（如「约 600-900 元/人」），不要返回对象。价格写区间并注明“以实际为准”。`,
     maxTokens: 3072,
     expectedSchemaHint: 'DetailedBudget 对象，含 currency/perPersonEstimate/totalEstimate/items/notes',
     signal,

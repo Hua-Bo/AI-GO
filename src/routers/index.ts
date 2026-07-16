@@ -175,6 +175,67 @@ const routes: RouteRecordRaw[] = [
       title: '我的世界游戏方案策划 AI',
     },
   },
+  {
+    path: '/agri-assistant',
+    component: () => import('@/views/agri/AgriLayout.vue'),
+    meta: { title: 'AI 农业种植助手' },
+    children: [
+      {
+        path: '',
+        name: 'AgriHome',
+        component: () => import('@/views/agri/HomeView.vue'),
+      },
+      {
+        path: 'voice',
+        name: 'AgriVoice',
+        component: () => import('@/views/agri/VoiceView.vue'),
+        meta: { hideAgriNav: true },
+      },
+      {
+        path: 'camera',
+        name: 'AgriCamera',
+        component: () => import('@/views/agri/CameraView.vue'),
+        meta: { hideAgriNav: true },
+      },
+      {
+        path: 'analyze',
+        name: 'AgriAnalyze',
+        component: () => import('@/views/agri/AnalyzeView.vue'),
+        meta: { hideAgriNav: true },
+      },
+      {
+        path: 'result',
+        name: 'AgriResult',
+        component: () => import('@/views/agri/ResultView.vue'),
+      },
+      {
+        path: 'today',
+        name: 'AgriToday',
+        component: () => import('@/views/agri/TodayView.vue'),
+      },
+      {
+        path: 'records',
+        name: 'AgriRecords',
+        component: () => import('@/views/agri/RecordsView.vue'),
+      },
+      {
+        path: 'records/:id',
+        name: 'AgriRecordDetail',
+        component: () => import('@/views/agri/RecordDetailView.vue'),
+      },
+      {
+        path: 'crop',
+        name: 'AgriCrop',
+        component: () => import('@/views/agri/CropProfileView.vue'),
+        meta: { hideAgriNav: true },
+      },
+      {
+        path: 'settings',
+        name: 'AgriSettings',
+        component: () => import('@/views/agri/SettingsView.vue'),
+      },
+    ],
+  },
 ]
 
 const router = createRouter({

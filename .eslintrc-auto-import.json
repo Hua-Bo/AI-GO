@@ -235,6 +235,7 @@
     "copyReminderText": "readonly",
     "copyAllReminderText": "readonly",
     "copyDayReminderText": "readonly",
-    "useResponsive": "readonly"
+    "useResponsive": "readonly",
+    "useAgriStore": "readonly"
   }
 }

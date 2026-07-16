@@ -5,6 +5,7 @@ import { defaultTravelStartDate } from '@/services/travelWeatherCore'
 import { AiRequestError } from '@/services/travelAiChat'
 import { useAiModelConfig } from '@/composables/travel/useAiModelConfig'
 import type {
+  DailyWeather,
   DeparturePoint,
   DestinationIntent,
   DetailedTravelGuide,
@@ -220,11 +221,17 @@ export function useTravelPlanner() {
 
     try {
       loadingStep.value = '正在获取每日天气'
-      const weatherList = await getTravelWeather({
-        city: destinationIntent.value.destinationText,
-        startDate: startDate.value,
-        days: effectiveDays.value,
-      })
+      let weatherList: DailyWeather[] = []
+      try {
+        weatherList = await getTravelWeather({
+          city: destinationIntent.value.destinationText,
+          startDate: startDate.value,
+          days: effectiveDays.value,
+        })
+      } catch {
+        // 天气获取失败时跳过，不影响后续 AI 路线规划
+        weatherList = []
+      }
 
       planResult.value = await planRouteByAi(
         { ...buildPlanParams(), weatherList },

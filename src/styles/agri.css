@@ -1,0 +1,104 @@
+:root {
+  --agri-primary: #2F7D32;
+  --agri-primary-soft: #E8F5E9;
+  --agri-bg: #F7F8F3;
+  --agri-card: #FFFFFF;
+  --agri-text: #1F2A1F;
+  --agri-muted: #687268;
+  --agri-danger: #D94B3D;
+  --agri-warn: #E8A317;
+  --agri-radius: 16px;
+}
+
+.agri-app {
+  min-height: 100dvh;
+  background: var(--agri-bg);
+  color: var(--agri-text);
+  font-size: 18px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+.agri-page {
+  width: 100%;
+  max-width: 480px;
+  min-width: 0;
+  margin: 0 auto;
+  padding: 16px 16px calc(88px + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+
+.agri-page.no-nav {
+  padding-bottom: calc(24px + env(safe-area-inset-bottom));
+}
+
+.agri-title {
+  margin: 0;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--agri-text);
+  letter-spacing: -0.02em;
+}
+
+.agri-subtitle {
+  margin: 8px 0 0;
+  font-size: 18px;
+  color: var(--agri-muted);
+}
+
+.agri-card {
+  background: var(--agri-card);
+  border-radius: 20px;
+  padding: 18px;
+  border: 1px solid rgba(47, 125, 50, 0.08);
+  box-shadow: 0 8px 24px rgba(31, 42, 31, 0.04);
+}
+
+.agri-primary-btn {
+  width: 100%;
+  min-height: 60px;
+  border: none;
+  border-radius: var(--agri-radius);
+  background: var(--agri-primary);
+  color: #fff;
+  font-size: 22px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agri-primary-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.agri-secondary-btn {
+  width: 100%;
+  min-height: 52px;
+  border-radius: var(--agri-radius);
+  border: 2px solid #C8D7C8;
+  background: #fff;
+  color: var(--agri-text);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agri-ghost-btn {
+  min-height: 48px;
+  padding: 0 16px;
+  border: none;
+  background: transparent;
+  color: var(--agri-primary);
+  font-size: 17px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.agri-row {
+  display: flex;
+  gap: 12px;
+}
+
+.agri-row > * {
+  flex: 1;
+}

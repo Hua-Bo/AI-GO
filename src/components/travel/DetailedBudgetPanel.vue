@@ -1,30 +1,12 @@
 <script setup lang="ts">
 import type { DetailedBudget } from '@/types/travelTypes'
+import { formatMoneyValue } from '@/utils/travelNormalize'
 
 defineProps<{ budget: DetailedBudget }>()
 
 const catLabel: Record<string, string> = {
   transport: '交通', hotel: '住宿', ticket: '门票', food: '餐饮',
   parking: '停车', charging: '充电', fuel: '油费', other: '其他',
-}
-
-function formatMoneyText(value: unknown): string {
-  if (value == null) return '以实际为准'
-
-  if (typeof value === 'string' || typeof value === 'number') {
-    return String(value)
-  }
-
-  if (typeof value === 'object') {
-    const obj = value as Record<string, unknown>
-    if (obj.amount != null) return String(obj.amount)
-    if (obj.total != null) return String(obj.total)
-    if (obj.min != null && obj.max != null) return `约 ${String(obj.min)}-${String(obj.max)} 元`
-    if (obj.value != null) return String(obj.value)
-    return Object.entries(obj).map(([key, val]) => `${key}: ${String(val)}`).join('，')
-  }
-
-  return String(value)
 }
 </script>
 
@@ -33,18 +15,18 @@ function formatMoneyText(value: unknown): string {
     <div class="totals">
       <div class="total-item">
         <span>人均估算</span>
-        <strong>{{ formatMoneyText(budget.perPersonEstimate) }}</strong>
+        <strong>{{ formatMoneyValue(budget.perPersonEstimate, '见明细') }}</strong>
       </div>
       <div class="total-item highlight">
         <span>全程总计</span>
-        <strong>{{ formatMoneyText(budget.totalEstimate) }}</strong>
+        <strong>{{ formatMoneyValue(budget.totalEstimate, '—') }}</strong>
       </div>
     </div>
 
     <div v-if="(budget.items || []).length" class="budget-grid">
       <div v-for="(item, i) in budget.items" :key="i" class="budget-item">
         <p class="cat">{{ catLabel[item.category] || item.category }}</p>
-        <strong class="amount">{{ formatMoneyText(item.amount) }}</strong>
+        <strong class="amount">{{ formatMoneyValue(item.amount, '以实际为准') }}</strong>
         <p class="name">{{ item.name }}</p>
         <p class="desc">{{ item.description || '以实际为准' }}</p>
       </div>

@@ -35,6 +35,28 @@ export function normalizeArray<T>(value: unknown, normalizer: (item: unknown, in
   return value.map(normalizer)
 }
 
+/** 将 AI 返回的金额字段（可能是对象/数字/字符串）转为可展示文本 */
+export function formatMoneyValue(value: unknown, fallback = ''): string {
+  if (value == null || value === '') return fallback
+  if (typeof value === 'string') return value === '[object Object]' ? fallback : value
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'object') {
+    const obj = value as Record<string, unknown>
+    if (obj.amount != null) return formatMoneyValue(obj.amount, fallback)
+    if (obj.total != null) return formatMoneyValue(obj.total, fallback)
+    if (obj.min != null && obj.max != null) return `约 ${obj.min}-${obj.max} 元`
+    if (obj.min != null) return `约 ${obj.min} 元起`
+    if (obj.max != null) return `约 ${obj.max} 元内`
+    if (obj.value != null) return formatMoneyValue(obj.value, fallback)
+    if (obj.estimate != null) return formatMoneyValue(obj.estimate, fallback)
+    const entries = Object.entries(obj).filter(([, v]) => v != null && typeof v !== 'object')
+    if (entries.length) return entries.map(([k, v]) => `${k}: ${v}`).join('，')
+    return fallback
+  }
+  const text = String(value)
+  return text === '[object Object]' ? fallback : text
+}
+
 function normalizeDailyWeather(raw: unknown, fallback?: DailyWeather): DailyWeather | undefined {
   if (!raw && !fallback) return fallback
   const item = (raw || fallback) as Partial<DailyWeather>
@@ -545,7 +567,7 @@ function normalizeBudgetItem(raw: unknown, index: number): BudgetItem {
   return {
     category: cat,
     name: String(item.name || `项目 ${index + 1}`),
-    amount: String(item.amount || ''),
+    amount: formatMoneyValue(item.amount, ''),
     description: String(item.description || ''),
   }
 }
@@ -767,22 +789,22 @@ export function normalizeBudget(raw: unknown): DetailedBudget {
   if (item.items && Array.isArray(item.items)) {
     return {
       currency: String(item.currency || 'CNY'),
-      perPersonEstimate: String(item.perPersonEstimate || ''),
-      totalEstimate: String(item.totalEstimate || ''),
+      perPersonEstimate: formatMoneyValue(item.perPersonEstimate, '见明细'),
+      totalEstimate: formatMoneyValue(item.totalEstimate, '—'),
       items: item.items.map((b, i) => normalizeBudgetItem(b, i)),
       notes: normalizeStringArray(item.notes),
     }
   }
   const items: BudgetItem[] = []
-  if (item.transport) items.push({ category: 'transport', name: '交通', amount: String(item.transport), description: '' })
-  if (item.hotel) items.push({ category: 'hotel', name: '住宿', amount: String(item.hotel), description: '' })
-  if (item.tickets) items.push({ category: 'ticket', name: '门票', amount: String(item.tickets), description: '' })
-  if (item.food) items.push({ category: 'food', name: '餐饮', amount: String(item.food), description: '' })
-  if (item.other) items.push({ category: 'other', name: '其他', amount: String(item.other), description: '' })
+  if (item.transport) items.push({ category: 'transport', name: '交通', amount: formatMoneyValue(item.transport, ''), description: '' })
+  if (item.hotel) items.push({ category: 'hotel', name: '住宿', amount: formatMoneyValue(item.hotel, ''), description: '' })
+  if (item.tickets) items.push({ category: 'ticket', name: '门票', amount: formatMoneyValue(item.tickets, ''), description: '' })
+  if (item.food) items.push({ category: 'food', name: '餐饮', amount: formatMoneyValue(item.food, ''), description: '' })
+  if (item.other) items.push({ category: 'other', name: '其他', amount: formatMoneyValue(item.other, ''), description: '' })
   return {
     currency: 'CNY',
-    perPersonEstimate: String(item.perPersonEstimate || '见明细'),
-    totalEstimate: String(item.totalEstimate || item.total || '—'),
+    perPersonEstimate: formatMoneyValue(item.perPersonEstimate, '见明细'),
+    totalEstimate: formatMoneyValue(item.totalEstimate ?? item.total, '—'),
     items,
     notes: normalizeStringArray(item.notes),
   }
