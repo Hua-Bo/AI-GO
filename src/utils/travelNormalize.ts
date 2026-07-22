@@ -27,6 +27,7 @@ import type {
   TravelGuide,
   TravelReminder,
 } from '@/types/travelTypes'
+import { needMeetingPlan } from '@/types/travelTypes'
 import { addDaysToDate } from '@/services/travelWeatherCore'
 import { buildRemindersFromDay, normalizeTravelReminder } from '@/utils/travelReminders'
 
@@ -315,19 +316,83 @@ export function normalizeMeetingPlan(raw: unknown): DetailedMeetingPlan {
 }
 
 export function normalizeStartPlan(raw: unknown, fallbackAddress = ''): StartPlan {
-  const item = raw as Partial<StartPlan>
+  const item = (raw && typeof raw === 'object' ? raw : {}) as Partial<StartPlan> & Record<string, unknown>
+  const firstStopCity = String(
+    item.firstStopCity
+    || item.firstStop
+    || item.firstCity
+    || item.destinationCity
+    || item.toCity
+    || '',
+  )
+  const suggestedStartTime = String(
+    item.suggestedStartTime
+    || item.startTime
+    || item.departTime
+    || item.departureTime
+    || '',
+  )
   return {
-    fromAddress: String(item.fromAddress || fallbackAddress),
-    firstStopCity: String(item.firstStopCity || ''),
-    suggestedStartTime: String(item.suggestedStartTime || ''),
-    routeDescription: String(item.routeDescription || ''),
+    fromAddress: String(item.fromAddress || item.from || fallbackAddress || ''),
+    firstStopCity,
+    suggestedStartTime,
+    routeDescription: String(item.routeDescription || item.description || item.summary || ''),
     duration: item.duration ? String(item.duration) : undefined,
     distance: item.distance ? String(item.distance) : undefined,
-    costEstimate: String(item.costEstimate || '以实际为准'),
-    transportTips: normalizeStringArray(item.transportTips),
+    costEstimate: String(item.costEstimate || item.cost || '以实际为准'),
+    transportTips: normalizeStringArray(item.transportTips ?? item.tips),
     chargingTips: normalizeStringArray(item.chargingTips),
     fuelHighwayTips: normalizeStringArray(item.fuelHighwayTips),
     stationTransferTips: normalizeStringArray(item.stationTransferTips),
+  }
+}
+
+/** 出发方案字段空缺时，用大纲/第一天行程回填，避免页面全是 — */
+export function enrichStartPlan(
+  startPlan: StartPlan | undefined,
+  outline: GuideOutline,
+  dailyPlans: DetailedDailyPlan[],
+  params: RoutePlanningParams,
+): StartPlan | undefined {
+  if (needMeetingPlan(params.departurePoints)) return startPlan
+  const dep = params.departurePoints[0]
+  const day1 = dailyPlans[0]
+  const firstSpot = day1?.scenicSpots?.[0]
+  const firstTimeline = day1?.timeline?.[0]
+  const base = startPlan || {
+    fromAddress: '',
+    firstStopCity: '',
+    suggestedStartTime: '',
+    routeDescription: '',
+    costEstimate: '以实际为准',
+    transportTips: [],
+  }
+  const firstStop = base.firstStopCity
+    || firstSpot?.name
+    || day1?.startCity
+    || outline.coreCities?.[0]
+    || outline.destination
+    || ''
+  const startTime = base.suggestedStartTime
+    || dep?.startTime
+    || firstTimeline?.time
+    || '建议 08:00–09:00 出发'
+  const desc = base.routeDescription
+    || (firstStop
+      ? `从 ${dep?.address || '出发地'} 出发，前往第一站「${firstStop}」。${outline.routeSummary || ''}`.trim()
+      : outline.routeSummary || '按当日行程前往目的地，注意路况与停车。')
+  return {
+    ...base,
+    fromAddress: base.fromAddress || dep?.address || '',
+    firstStopCity: firstStop,
+    suggestedStartTime: startTime,
+    routeDescription: desc,
+    duration: base.duration || day1?.transportSummary?.totalTransportTime,
+    distance: base.distance || day1?.transportSummary?.totalDistance,
+    costEstimate: base.costEstimate || '以实际为准',
+    transportTips: base.transportTips?.length
+      ? base.transportTips
+      : ['提前确认出发时间与路况', '景区周边注意停车与步行距离'],
   }
 }
 
@@ -431,6 +496,8 @@ function normalizeDailyHotel(raw: unknown): DailyHotelSuggestion {
 function isLocalShortTrip(params: RoutePlanningParams): boolean {
   if (params.departurePoints.length !== 1) return false
   if (params.accommodationPreference.mode === 'hotelNeeded') return false
+  if (params.accommodationPreference.mode === 'campingOrCar') return false
+  if ((params.accommodationPreference.hotelDays || []).length) return false
   const departure = params.departurePoints[0]?.address || ''
   const destination = params.destinationIntent.destinationText || ''
   const text = `${departure} ${destination} ${params.specialPlaceHint || ''} ${params.accommodationPreference.note || ''}`
@@ -459,6 +526,47 @@ function forceHomeHotel(day: DetailedDailyPlan, homeBase: string): DetailedDaily
   }
 }
 
+function forceCarOrCampingHotel(day: DetailedDailyPlan, city: string): DetailedDailyPlan {
+  return {
+    ...day,
+    hotelSuggestion: {
+      needed: false,
+      type: 'car',
+      city: city || day.endCity || day.overnightCity || '',
+      area: '车宿/露营',
+      reason: '按用户偏好睡车/露营，不安排酒店。注意安全停车与营地规则。',
+      priceRange: '0元',
+      bookingTips: ['选择合法可过夜停车点或正规营地', '注意通风、用电与人身安全'],
+    },
+    dayBudget: {
+      ...day.dayBudget,
+      hotel: '0元',
+    },
+  }
+}
+
+function forceHotelForLaundry(day: DetailedDailyPlan, reason: string): DetailedDailyPlan {
+  const city = day.endCity || day.overnightCity || day.hotelSuggestion?.city || ''
+  return {
+    ...day,
+    overnightCity: city || day.overnightCity,
+    hotelSuggestion: {
+      needed: true,
+      type: 'hotel',
+      city,
+      area: day.hotelSuggestion?.area || '交通方便、有洗衣洗烘',
+      reason: reason || '指定住酒店日：洗衣洗烘、洗澡补给',
+      priceRange: day.hotelSuggestion?.priceRange || '以实际为准',
+      parkingConvenience: day.hotelSuggestion?.parkingConvenience,
+      transportConvenience: day.hotelSuggestion?.transportConvenience,
+      bookingTips: [
+        ...(day.hotelSuggestion?.bookingTips || []),
+        '优先选择带洗衣洗烘的酒店',
+      ].filter(Boolean),
+    },
+  }
+}
+
 function isNearHomeHotelSuggestion(day: DetailedDailyPlan, homeBase: string): boolean {
   const home = homeBase || ''
   const overnight = `${day.overnightCity || ''} ${day.hotelSuggestion?.city || ''} ${day.hotelSuggestion?.area || ''}`
@@ -471,8 +579,20 @@ function isNearHomeHotelSuggestion(day: DetailedDailyPlan, homeBase: string): bo
 }
 
 function normalizeHotelByContext(day: DetailedDailyPlan, params: RoutePlanningParams, localShortTrip: boolean): DetailedDailyPlan {
+  const hotelDays = params.accommodationPreference.hotelDays || []
+  const reason = params.accommodationPreference.hotelDayReason || '洗衣洗烘，补充补给'
+  if (hotelDays.includes(day.day)) {
+    return forceHotelForLaundry(day, `第${day.day}天指定住酒店：${reason}`)
+  }
+
   if (params.accommodationPreference.mode === 'hotelNeeded') return day
+
   const homeBase = params.accommodationPreference.homeBaseAddress || params.departurePoints[0]?.address || '家'
+
+  if (params.accommodationPreference.mode === 'campingOrCar') {
+    return forceCarOrCampingHotel(day, day.endCity || day.overnightCity || '')
+  }
+
   if (params.accommodationPreference.mode === 'homeEveryDay' || params.accommodationPreference.mode === 'noHotelPreferred' || localShortTrip) {
     return forceHomeHotel(day, homeBase)
   }
@@ -752,7 +872,7 @@ export function composeDetailedGuide(parts: {
       themes: params.travelThemes,
     },
     departureOverview: buildDepartureOverviewFromPoints(deps),
-    startPlan,
+    startPlan: enrichStartPlan(startPlan, outline, normalizedDays, params),
     meetingPlan,
     routeOverview: {
       routeName: outline.routeName,

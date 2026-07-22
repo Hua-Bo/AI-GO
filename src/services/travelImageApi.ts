@@ -1,5 +1,5 @@
 export { buildImageKeyword } from '@/utils/travelNormalize'
-import type { DetailedScenicSpot, SpotType } from '@/types/travelTypes'
+import type { DetailedScenicSpot } from '@/types/travelTypes'
 
 export interface ScenicImageResult {
   url: string
@@ -10,7 +10,7 @@ export interface ScenicImageResult {
 
 const imageCache = new Map<string, ScenicImageResult>()
 
-const BLOCKED_URL_PATTERNS = /map|logo|icon|svg|placeholder|qr|avatar|banner/i
+const BLOCKED_URL_PATTERNS = /map|logo|icon|svg|placeholder|qr|avatar|banner|sprite|favicon/i
 
 export function buildScenicImageKeyword(spot: Pick<DetailedScenicSpot, 'province' | 'city' | 'name' | 'spotType'>): string {
   const typeHint = spot.spotType === 'park' ? '公园'
@@ -55,14 +55,142 @@ export function isImageLikelyRelevant(params: {
   return { relevant: score >= 0.5, score }
 }
 
-interface WikiHit {
+interface ImageHit {
   url: string
   title: string
+  source: string
+  trusted?: boolean
 }
 
-async function searchWikimediaOnce(keyword: string): Promise<WikiHit | null> {
+function commonsFileUrl(filename: string): string {
+  const clean = filename.replace(/^File:/i, '').trim()
+  return `https://commons.wikimedia.org/wiki/Special:FilePath/${encodeURIComponent(clean)}?width=1000`
+}
+
+/** 维基百科中文 REST 摘要图（命中率更高） */
+async function searchWikipediaRest(spotName: string, city?: string): Promise<ImageHit | null> {
+  const titles = [...new Set([
+    spotName,
+    city ? `${city}${spotName}` : '',
+    spotName.replace(/(国家)?(风景名胜区|风景区|旅游区|度假区|景区|公园)$/g, ''),
+  ].filter(Boolean))]
+
+  for (const title of titles) {
+    try {
+      const url = `https://zh.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const data = await res.json() as {
+        title?: string
+        thumbnail?: { source?: string }
+        originalimage?: { source?: string }
+        type?: string
+      }
+      if (data.type === 'disambiguation') continue
+      const img = data.originalimage?.source || data.thumbnail?.source
+      if (!img) continue
+      return { url: img, title: data.title || title, source: '维基百科', trusted: true }
+    } catch {
+      // next
+    }
+  }
+  return null
+}
+
+/** 维基百科 query 主图兜底 */
+async function searchWikipediaZh(spotName: string, city?: string): Promise<ImageHit | null> {
+  const titles = [...new Set([
+    spotName,
+    city ? `${city}${spotName}` : '',
+    spotName.replace(/(国家)?(风景名胜区|风景区|旅游区|度假区|景区|公园)$/g, ''),
+  ].filter(Boolean))]
+
+  for (const title of titles) {
+    try {
+      const url = `https://zh.wikipedia.org/w/api.php?action=query&titles=${encodeURIComponent(title)}&prop=pageimages|info&inprop=url&pithumbsize=1000&redirects=1&format=json&origin=*`
+      const res = await fetch(url)
+      if (!res.ok) continue
+      const data = await res.json() as {
+        query?: { pages?: Record<string, { title?: string; thumbnail?: { source?: string }; missing?: string }> }
+      }
+      const pages = data.query?.pages
+      if (!pages) continue
+      for (const page of Object.values(pages)) {
+        if (page.missing != null) continue
+        const img = page.thumbnail?.source
+        if (!img) continue
+        return { url: img, title: page.title || title, source: '维基百科', trusted: true }
+      }
+    } catch {
+      // next
+    }
+  }
+  return null
+}
+
+/** Wikidata P18 官方图（常见景区覆盖好） */
+async function searchWikidataImage(spotName: string, city?: string): Promise<ImageHit | null> {
+  const queries = [...new Set([spotName, city ? `${city}${spotName}` : ''].filter(Boolean))]
+  for (const q of queries) {
+    try {
+      const searchUrl = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(q)}&language=zh&uselang=zh&limit=3&format=json&origin=*`
+      const searchRes = await fetch(searchUrl)
+      if (!searchRes.ok) continue
+      const searchData = await searchRes.json() as {
+        search?: Array<{ id: string; label?: string; description?: string }>
+      }
+      for (const entity of searchData.search || []) {
+        const id = entity.id
+        if (!id) continue
+        const entityUrl = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${id}&props=claims|labels&languages=zh&format=json&origin=*`
+        const entityRes = await fetch(entityUrl)
+        if (!entityRes.ok) continue
+        const entityData = await entityRes.json() as {
+          entities?: Record<string, {
+            labels?: { zh?: { value?: string } }
+            claims?: { P18?: Array<{ mainsnak?: { datavalue?: { value?: string } } }> }
+          }>
+        }
+        const item = entityData.entities?.[id]
+        const file = item?.claims?.P18?.[0]?.mainsnak?.datavalue?.value
+        if (!file) continue
+        const label = item?.labels?.zh?.value || entity.label || spotName
+        return {
+          url: commonsFileUrl(file),
+          title: label,
+          source: 'Wikidata',
+          trusted: true,
+        }
+      }
+    } catch {
+      // next
+    }
+  }
+  return null
+}
+
+async function searchOpenverse(keyword: string): Promise<ImageHit | null> {
   try {
-    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(keyword)}&gsrnamespace=6&gsrlimit=5&prop=imageinfo|info&inprop=url&iiprop=url&iiurlwidth=800&format=json&origin=*`
+    const url = `https://api.openverse.org/v1/images/?q=${encodeURIComponent(keyword)}&page_size=5&license=cc0,by,by-sa`
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const data = await res.json() as {
+      results?: Array<{ title?: string; url?: string; thumbnail?: string }>
+    }
+    for (const item of data.results || []) {
+      const imgUrl = item.url || item.thumbnail
+      if (!imgUrl || BLOCKED_URL_PATTERNS.test(imgUrl)) continue
+      return { url: imgUrl, title: item.title || keyword, source: 'Openverse' }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
+async function searchWikimediaOnce(keyword: string): Promise<ImageHit | null> {
+  try {
+    const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${encodeURIComponent(keyword)}&gsrnamespace=6&gsrlimit=8&prop=imageinfo|info&inprop=url&iiprop=url&iiurlwidth=1000&format=json&origin=*`
     const res = await fetch(url)
     if (!res.ok) return null
     const data = await res.json() as {
@@ -73,7 +201,7 @@ async function searchWikimediaOnce(keyword: string): Promise<WikiHit | null> {
     for (const page of Object.values(pages)) {
       const info = page.imageinfo?.[0]
       const imgUrl = info?.thumburl || info?.url
-      if (imgUrl) return { url: imgUrl, title: page.title || keyword }
+      if (imgUrl) return { url: imgUrl, title: page.title || keyword, source: 'Wikimedia', trusted: true }
     }
     return null
   } catch {
@@ -88,14 +216,12 @@ function keywordVariants(spot: Pick<DetailedScenicSpot, 'province' | 'city' | 'n
   return [...new Set([
     keyword.trim(),
     spot.imageKeyword?.trim(),
+    `${city} ${name}`,
+    `${city}${name}`,
+    `${name}`,
     `${city} ${name} 景区`,
-    `${city} ${name} 风景`,
-    `${name} 旅游`,
-    `${name} 门票`,
-    `${city} 旅游景点`,
-    `${province} ${city} ${name}`,
     `${name} 风景`,
-    `${name} 景区`,
+    `${province} ${name}`,
   ].filter((k): k is string => Boolean(k && k.trim())))]
 }
 
@@ -117,11 +243,41 @@ async function searchCustomApi(keywords: string[]): Promise<Record<string, strin
 
 export async function checkImageAvailable(url: string): Promise<boolean> {
   return new Promise((resolve) => {
+    const timer = window.setTimeout(() => resolve(true), 2500)
     const img = new Image()
-    img.onload = () => resolve(img.naturalWidth > 240 && img.naturalHeight > 160)
-    img.onerror = () => resolve(false)
+    img.onload = () => {
+      window.clearTimeout(timer)
+      resolve(img.naturalWidth > 120 && img.naturalHeight > 80)
+    }
+    img.onerror = () => {
+      window.clearTimeout(timer)
+      resolve(false)
+    }
+    img.referrerPolicy = 'no-referrer'
     img.src = url
   })
+}
+
+function toResult(hit: ImageHit, spotName: string, city: string, keyword: string): ScenicImageResult | null {
+  const check = isImageLikelyRelevant({
+    keyword,
+    spotName,
+    city,
+    imageTitle: hit.title,
+    imageUrl: hit.url,
+  })
+  const nameHit = !!spotName && (
+    hit.title.includes(spotName)
+    || hit.title.includes(spotName.slice(0, Math.min(2, spotName.length)))
+  )
+  // 可信来源（维基/Wikidata）即使标题不完全匹配也放行
+  if (!hit.trusted && check.score < 0.2 && !nameHit) return null
+  return {
+    url: hit.url,
+    source: hit.source,
+    status: check.score >= 0.7 || hit.trusted ? 'ok' : 'uncertain',
+    relevanceScore: Math.max(check.score, hit.trusted ? 0.7 : 0, nameHit ? 0.55 : 0),
+  }
 }
 
 export async function getScenicImage(
@@ -131,70 +287,74 @@ export async function getScenicImage(
   if (!keyword.trim() && !spot.name) {
     return { url: '', source: '', status: 'noReliableImage', relevanceScore: 0 }
   }
-  const cacheKey = keyword || `${spot.city}-${spot.name}`
+  const cacheKey = `${spot.city || ''}|${spot.name || ''}|${keyword}`
   if (imageCache.has(cacheKey)) return imageCache.get(cacheKey)!
 
   const variants = keywordVariants(spot, keyword)
+  const accept = (hit: ImageHit | null, kw = keyword) => {
+    if (!hit?.url) return null
+    return toResult(hit, spot.name, spot.city || '', kw)
+  }
+
+  // 1) 自定义搜索 API
   const custom = await searchCustomApi(variants)
   if (custom) {
     for (const kw of variants) {
       const url = custom[kw]
       if (!url) continue
-      const ok = await checkImageAvailable(url)
-      if (!ok) continue
-      const check = isImageLikelyRelevant({
-        keyword: kw, spotName: spot.name, city: spot.city, imageUrl: url,
-      })
-      // 放宽：只要能加载且不是明显无关图标，就展示
-      if (check.score >= 0.35 || ok) {
-        const result: ScenicImageResult = {
-          url,
-          source: '网络搜索',
-          status: check.score >= 0.7 ? 'ok' : 'uncertain',
-          relevanceScore: check.score,
-        }
-        imageCache.set(cacheKey, result)
-        return result
-      }
-    }
-  }
-
-  for (const variant of variants) {
-    const hit = await searchWikimediaOnce(variant)
-    if (!hit) continue
-    const check = isImageLikelyRelevant({
-      keyword: variant,
-      spotName: spot.name,
-      city: spot.city,
-      imageTitle: hit.title,
-      imageUrl: hit.url,
-    })
-    // 放宽阈值：优先展示，标为 uncertain 也可
-    if (check.score >= 0.3 || (spot.name && (hit.title || '').includes(spot.name.slice(0, 2)))) {
       const result: ScenicImageResult = {
-        url: hit.url,
-        source: 'Wikimedia',
-        status: check.score >= 0.7 ? 'ok' : 'uncertain',
-        relevanceScore: check.score,
+        url,
+        source: '网络搜索',
+        status: 'ok',
+        relevanceScore: 0.8,
       }
       imageCache.set(cacheKey, result)
       return result
     }
   }
 
-  // 最后再试一次纯景区名
+  // 2) 维基百科 REST / query（常见景区命中高）
   if (spot.name) {
-    const hit = await searchWikimediaOnce(spot.name)
-    if (hit) {
-      const result: ScenicImageResult = {
-        url: hit.url,
-        source: 'Wikimedia',
-        status: 'uncertain',
-        relevanceScore: 0.4,
-      }
-      imageCache.set(cacheKey, result)
-      return result
+    const wikiRest = accept(await searchWikipediaRest(spot.name, spot.city))
+    if (wikiRest) {
+      imageCache.set(cacheKey, wikiRest)
+      return wikiRest
     }
+    const wiki = accept(await searchWikipediaZh(spot.name, spot.city))
+    if (wiki) {
+      imageCache.set(cacheKey, wiki)
+      return wiki
+    }
+  }
+
+  // 3) Wikidata 官方图
+  if (spot.name) {
+    const wd = accept(await searchWikidataImage(spot.name, spot.city))
+    if (wd) {
+      imageCache.set(cacheKey, wd)
+      return wd
+    }
+  }
+
+  // 4) Wikimedia Commons（可信源不再因预加载失败而丢弃）
+  for (const variant of variants.slice(0, 5)) {
+    const hit = await searchWikimediaOnce(variant)
+    const result = accept(hit, variant)
+    if (!result) continue
+    imageCache.set(cacheKey, result)
+    return result
+  }
+
+  // 5) Openverse
+  for (const variant of variants.slice(0, 3)) {
+    const hit = await searchOpenverse(variant)
+    const result = accept(hit, variant)
+    if (!result) continue
+    // Openverse 再做一次可用性检查，失败则跳过
+    const ok = await checkImageAvailable(result.url)
+    if (!ok) continue
+    imageCache.set(cacheKey, result)
+    return result
   }
 
   const empty: ScenicImageResult = { url: '', source: '', status: 'noReliableImage', relevanceScore: 0 }
@@ -206,11 +366,19 @@ export async function batchGetScenicImages(
   spots: Array<Pick<DetailedScenicSpot, 'province' | 'city' | 'name' | 'spotType' | 'imageKeyword'>>,
 ): Promise<Map<string, ScenicImageResult>> {
   const out = new Map<string, ScenicImageResult>()
-  await Promise.all(spots.map(async (spot) => {
-    const kw = spot.imageKeyword || buildScenicImageKeyword(spot)
-    const result = await getScenicImage(spot)
-    out.set(kw, result)
-  }))
+  const queue = [...spots]
+  const workers = Array.from({ length: Math.min(3, queue.length || 1) }, async () => {
+    while (queue.length) {
+      const spot = queue.shift()
+      if (!spot) break
+      const kw = spot.imageKeyword || buildScenicImageKeyword(spot)
+      const result = await getScenicImage(spot)
+      out.set(kw, result)
+      // 同时按城市+名称索引，避免 keyword 不一致对不上
+      out.set(`${spot.city}-${spot.name}`, result)
+    }
+  })
+  await Promise.all(workers)
   return out
 }
 

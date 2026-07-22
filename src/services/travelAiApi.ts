@@ -1,5 +1,5 @@
 import { AiJsonParseError, callAiChatJson } from '@/services/travelAiChat'
-import { batchGetScenicImages, buildScenicImageKeyword } from '@/services/travelImageApi'
+import { getScenicImage, buildScenicImageKeyword } from '@/services/travelImageApi'
 import type {
   AiModelConfig,
   DetailedBudget,
@@ -23,6 +23,7 @@ import {
   normalizeGuideTips,
   normalizeMeetingPlan,
   normalizeStartPlan,
+  enrichStartPlan,
   attachWeatherAndRemindersToDailyPlan,
 } from '@/utils/travelNormalize'
 import { isBadWeather } from '@/services/travelWeatherCore'
@@ -93,19 +94,53 @@ function buildAccommodationPrefs(params: RoutePlanningParams): string {
     && (localKeywords.some((k) => text.includes(k)) || (text.includes('无锡') && params.destinationIntent.destinationText.includes('无锡')))
   const mode = shouldNoHotel ? 'noHotelPreferred' : p.mode
   const maxKm = p.maxReturnDistanceKm || 80
+  const hotelDays = (p.hotelDays || []).filter((d) => d >= 1 && d <= params.travelDays)
+  const hotelDayText = hotelDays.length
+    ? `指定住酒店天数：第${hotelDays.join('、')}天；原因：${p.hotelDayReason || '洗衣洗烘/补给'}`
+    : '指定住酒店天数：无'
+
+  const campingRules = mode === 'campingOrCar'
+    ? [
+      '6) 默认车宿/露营：hotelSuggestion 使用 needed=false,type=car 或 camping，写明安全停车/营地建议，酒店预算记0。',
+      '7) 若用户指定了某天住酒店，该天必须 needed=true,type=hotel，并写洗衣洗烘/洗澡补给等理由；其余天继续车宿/露营。',
+    ]
+    : []
+
   return [
     `住宿模式：${mode}`,
     `常住地/回家地址：${home || '未填写'}`,
     `可接受单程回家距离：${maxKm}km`,
     `可接受单程回家时长：${p.maxReturnDuration || '1.5小时'}`,
     `补充说明：${p.note || '无'}`,
+    hotelDayText,
     '住宿硬性规则：',
     '1) 若当天最后一个景点距离常住地/出发地小于 50 公里，不要推荐酒店，文案写“建议当天返回家中休息”。',
     '2) 本地游、近郊游默认当天返回家中休息，不要在用户居住区附近推荐酒店。',
-    '3) 用户住在无锡滨湖区时，不要推荐滨湖区或无锡市区酒店，除非用户明确选择“想住一晚/需要酒店”。',
+    '3) 用户住在无锡滨湖区时，不要推荐滨湖区或无锡市区酒店，除非用户明确选择“想住一晚/需要酒店”或指定了住酒店天数。',
     '4) 只有跨市较远、返程超过 100 公里、或用户主动选择需要住宿时，才推荐酒店。',
     '5) 多出发地场景下，只给距离较远、当天无法合理回家的人推荐住宿。',
+    ...campingRules,
   ].join('；')
+}
+
+function buildCustomEventsPrefs(params: RoutePlanningParams): string {
+  const events = (params.customDailyEvents || []).filter((e) => e.enabled && e.title.trim())
+  if (!events.length) return '无'
+  const freqLabel: Record<string, string> = {
+    daily: '每天必须安排',
+    everyOtherDay: '最多间隔1天安排一次',
+    hotelLaundryDays: '仅在指定住酒店那天安排',
+    once: '行程中至少安排一次',
+  }
+  return events.map((e, i) => {
+    const parts = [
+      `${i + 1}. ${e.title}`,
+      `频率：${freqLabel[e.frequency] || e.frequency}`,
+      e.description ? `要求：${e.description}` : '',
+      e.searchHint ? `搜索线索：${e.searchHint}` : '',
+    ].filter(Boolean)
+    return parts.join('，')
+  }).join('\n')
 }
 
 function buildPlanModeConstraint(planMode?: RoutePlanningParams['planMode']): string {
@@ -221,6 +256,8 @@ ${buildWeatherListContext(params)}
 【车辆可达偏好】${buildDrivePrefs(params)}
 【少走路范围】${params.maxWalkDistance || '0-500米'}
 【特殊点位线索】${params.specialPlaceHint || '无'}
+【自定义每日事件（必须写入 timeline）】
+${buildCustomEventsPrefs(params)}
 【住宿偏好】${buildAccommodationPrefs(params)}`
 }
 
@@ -328,7 +365,8 @@ ${buildParamsContext(params)}
 【路线总览】${outline.routeSummary}
 【交通方式】${transportLabel(dep.transportType, dep.carType)}
 
-必须包含：fromAddress, firstStopCity, suggestedStartTime, routeDescription, duration, distance, costEstimate, transportTips[]。
+必须包含且字段不要为空：fromAddress（出发地址）, firstStopCity（第一站城市或景区名，必填字符串）, suggestedStartTime（如「08:30」必填）, routeDescription（必填）, duration, distance, costEstimate, transportTips[]。
+不要把 firstStopCity / suggestedStartTime 写成对象，必须是字符串。
 电车写 chargingTips[]，油车写 fuelHighwayTips[]，高铁/飞机写 stationTransferTips[]。`,
     maxTokens: 4096,
     expectedSchemaHint: 'StartPlan 对象',
@@ -406,6 +444,8 @@ timeline 每项必须含：time、title、location、description、duration、co
 如果为自驾，必须写清楚停车点、是否可开到附近、步行距离、电车补能或油费高速说明。
 住宿安排必须结合用户出发地和常住地判断。如果当天可合理回家，不要安排酒店。多日本地短途可每天“回家过夜”。
 若不住酒店，hotelSuggestion 使用：needed=false,type=home,area=回家过夜,priceRange=0元。
+若住宿模式为露营/车宿：默认 needed=false,type=car 或 camping；若当天属于用户指定住酒店天数，则必须 needed=true,type=hotel，并在 reason 中写明洗衣洗烘等原因。
+自定义每日事件必须落到 timeline：例如“洗澡/健身房淋浴”，请在当天城市推荐具体可执行点位（如24小时健身房带淋浴、团购单次卡），写清时间与费用。
 ${params.planMode === 'simple' ? '精简版：timeline 控制在 3-4 个节点，description 简短，scenicSpots 最多 3 个。' : '详细版：timeline 完整展开，meals 与 dayBudget 必须填写，恶劣天气必须写 badWeatherAlternative。'}
 scenicSpots 每项必须含：name, city, province, spotType, isFree, ticketPrice, costTips[], suggestedDuration, suitableFor[], playRoute[], mustSeePoints[], photoSpots[], avoidPitfalls[], parkingInfo, imageKeyword, carAccess{canDriveNear,parkingDistance,parkingInfo,roadCondition,walkingDistance,safetyNote}。
 还必须含：day=${day}, title, dateText, startCity, endCity, overnightCity, daySummary, transportSummary, timeline[], scenicSpots[], meals[], hotelSuggestion, dayBudget, tips[], reminders[], badWeatherAlternative?`,
@@ -454,7 +494,8 @@ ${daysSummary}
 - high：住宿500-900/间夜，餐饮180-350/人天，门票150-500/人总计，停车50-150/天
 如果用户偏好免费景区/低成本/避开高门票，门票预算必须明显降低，不要高估。
 无锡周边2日电车自驾且低成本场景，总预算通常应在600-1200附近（以实际为准）。
-如果每日行程为回家过夜或不住酒店，住宿预算应为0元，不得再计入酒店费用。
+如果每日行程为回家过夜、车宿/露营或不住酒店，住宿预算应为0元，不得再计入酒店费用。
+若用户指定了某天住酒店（如洗衣洗烘），仅该天计入酒店费用。
 必须包含：currency, perPersonEstimate, totalEstimate, items[]（category: transport/hotel/ticket/food/parking/charging/fuel/other）, notes[]。perPersonEstimate 与 totalEstimate 必须是字符串（如「约 600-900 元/人」），不要返回对象。价格写区间并注明“以实际为准”。`,
     maxTokens: 3072,
     expectedSchemaHint: 'DetailedBudget 对象，含 currency/perPersonEstimate/totalEstimate/items/notes',
@@ -480,7 +521,9 @@ ${buildParamsContext(params)}
 
 【途经城市】${cities}
 
-必须包含：transportTips[], riskTips[], packingList[], finalSuggestions[]`,
+必须包含：transportTips[], riskTips[], packingList[], finalSuggestions[]。
+若用户有自定义每日事件（如洗澡/健身房淋浴/洗衣），请在 finalSuggestions 或 packingList 中给出可执行提醒。
+若为车宿并指定了住酒店天数，请提醒那天提前订有洗衣洗烘的酒店。`,
     maxTokens: 3072,
     expectedSchemaHint: 'GuideTipsResult 对象，含 transportTips/riskTips/packingList/finalSuggestions',
     signal,
@@ -515,7 +558,7 @@ function normalizeImageUrl(url?: string): string {
 
 function attachSpotImage(s: DetailedScenicSpot, imageMap: Map<string, import('@/services/travelImageApi').ScenicImageResult>): DetailedScenicSpot {
   const kw = s.imageKeyword || buildScenicImageKeyword(s)
-  const hit = imageMap.get(kw)
+  const hit = imageMap.get(kw) || imageMap.get(`${s.city}-${s.name}`)
   const normalized = normalizeImageUrl(hit?.url)
   if (!hit || !normalized) {
     return { ...s, image: '', imageSource: undefined, imageStatus: 'noReliableImage' }
@@ -532,12 +575,24 @@ async function hydrateGuideImages(
   guide: DetailedTravelGuide,
   onProgress?: (s: string) => void,
 ): Promise<DetailedTravelGuide> {
-  onProgress?.('正在获取景区图片')
   const spots = collectAllSpots(guide)
-  const imageMap = await batchGetScenicImages(spots.map((s) => ({
-    ...s,
-    imageKeyword: s.imageKeyword || buildScenicImageKeyword(s),
-  })))
+  const total = spots.length
+  onProgress?.(total ? `正在获取景区图片 0/${total}` : '正在获取景区图片')
+
+  const imageMap = new Map<string, import('@/services/travelImageApi').ScenicImageResult>()
+  let done = 0
+  for (const spot of spots) {
+    const kw = spot.imageKeyword || buildScenicImageKeyword(spot)
+    const result = await getScenicImage({
+      ...spot,
+      imageKeyword: kw,
+    })
+    imageMap.set(kw, result)
+    imageMap.set(`${spot.city}-${spot.name}`, result)
+    done += 1
+    onProgress?.(`正在获取景区图片 ${done}/${total}：${spot.name}`)
+  }
+
   const attach = (s: DetailedScenicSpot) => attachSpotImage(s, imageMap)
   const firstCover = spots[0] ? attach(spots[0]).image : ''
   return {

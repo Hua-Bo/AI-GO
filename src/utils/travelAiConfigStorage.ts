@@ -41,13 +41,25 @@ export const defaultAiConfig: AiModelConfig = {
   temperature: 0.2,
   maxTokens: 4096,
   thinkingEnabled: false,
+  providerKeys: {},
+}
+
+function syncProviderKeys(config: AiModelConfig): AiModelConfig {
+  const providerKeys = { ...(config.providerKeys || {}) }
+  if (config.apiKey.trim()) {
+    providerKeys[config.provider] = config.apiKey.trim()
+  }
+  return {
+    ...config,
+    requestMode: 'direct',
+    providerKeys,
+    apiKey: providerKeys[config.provider] || config.apiKey || '',
+  }
 }
 
 export function saveAiConfig(config: AiModelConfig) {
-  localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify({
-    ...config,
-    requestMode: 'direct',
-  }))
+  const normalized = syncProviderKeys(config)
+  localStorage.setItem(AI_CONFIG_STORAGE_KEY, JSON.stringify(normalized))
 }
 
 export function loadAiConfig(): AiModelConfig {
@@ -55,7 +67,7 @@ export function loadAiConfig(): AiModelConfig {
     || localStorage.getItem(LEGACY_STORAGE_KEY)
 
   if (!raw) {
-    return { ...defaultAiConfig }
+    return { ...defaultAiConfig, providerKeys: {} }
   }
 
   try {
@@ -64,6 +76,11 @@ export function loadAiConfig(): AiModelConfig {
       ? parsed.provider
       : defaultAiConfig.provider
     const defaults = AI_PROVIDER_DEFAULTS[provider]
+    const providerKeys = { ...(parsed.providerKeys || {}) }
+    // 兼容旧数据：把当前 key 归到对应 provider 下
+    if (parsed.apiKey?.trim() && !providerKeys[provider]) {
+      providerKeys[provider] = parsed.apiKey.trim()
+    }
 
     return {
       ...defaultAiConfig,
@@ -72,13 +89,37 @@ export function loadAiConfig(): AiModelConfig {
       baseURL: parsed.baseURL || defaults.baseURL,
       model: parsed.model || defaults.model,
       requestMode: 'direct',
+      providerKeys,
+      apiKey: providerKeys[provider] || '',
     }
   } catch {
-    return { ...defaultAiConfig }
+    return { ...defaultAiConfig, providerKeys: {} }
   }
 }
 
 export function clearAiConfig() {
   localStorage.removeItem(AI_CONFIG_STORAGE_KEY)
   localStorage.removeItem(LEGACY_STORAGE_KEY)
+}
+
+/** 切换提供商：先保存当前 key，再加载目标提供商已存 key */
+export function switchProviderConfig(
+  current: AiModelConfig,
+  nextProvider: AiModelConfig['provider'],
+): AiModelConfig {
+  const providerKeys = { ...(current.providerKeys || {}) }
+  if (current.apiKey.trim()) {
+    providerKeys[current.provider] = current.apiKey.trim()
+  }
+  const defaults = AI_PROVIDER_DEFAULTS[nextProvider]
+  return {
+    ...current,
+    provider: nextProvider,
+    baseURL: defaults.baseURL,
+    model: defaults.model,
+    endpointMode: 'openai',
+    requestMode: 'direct',
+    providerKeys,
+    apiKey: providerKeys[nextProvider] || '',
+  }
 }

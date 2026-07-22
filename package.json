@@ -27,6 +27,7 @@
     "github-markdown-css": "^5.7.0",
     "gl-matrix": "^3.4.3",
     "html2canvas": "^1.4.1",
+    "jspdf": "^4.2.1",
     "leaflet": "^1.9.4",
     "mammoth": "^1.11.0",
     "mapbox-gl": "^2.15.0",

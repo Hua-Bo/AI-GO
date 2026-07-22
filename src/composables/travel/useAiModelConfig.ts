@@ -1,10 +1,11 @@
-import { computed, ref, watch } from 'vue'
+import { computed, ref } from 'vue'
 import type { AiModelConfig } from '@/types/travelTypes'
 import {
   AI_PROVIDER_DEFAULTS,
   clearAiConfig,
   loadAiConfig,
   saveAiConfig,
+  switchProviderConfig,
 } from '@/utils/travelAiConfigStorage'
 
 export { AI_PROVIDER_DEFAULTS }
@@ -15,18 +16,23 @@ function buildDefaultConfig(): AiModelConfig {
   const provider = stored.provider
     || (envProvider && AI_PROVIDER_DEFAULTS[envProvider] ? envProvider : 'longcat')
   const defaults = AI_PROVIDER_DEFAULTS[provider]
+  const providerKeys = { ...(stored.providerKeys || {}) }
+  if (stored.apiKey?.trim() && !providerKeys[provider]) {
+    providerKeys[provider] = stored.apiKey.trim()
+  }
 
   return {
     ...stored,
     provider,
     baseURL: stored.baseURL || defaults.baseURL,
     model: stored.model || defaults.model,
-    apiKey: stored.apiKey || import.meta.env.VITE_AI_API_KEY || '',
+    apiKey: providerKeys[provider] || import.meta.env.VITE_AI_API_KEY || '',
     endpointMode: stored.endpointMode || 'openai',
     requestMode: 'direct',
     temperature: stored.temperature ?? 0.2,
     maxTokens: stored.maxTokens ?? 4096,
     thinkingEnabled: stored.thinkingEnabled ?? false,
+    providerKeys,
   }
 }
 
@@ -37,9 +43,15 @@ export function useAiModelConfig() {
   const hasApiKey = computed(() => !!config.value.apiKey.trim())
 
   function saveConfig(next: AiModelConfig) {
+    const providerKeys = { ...(next.providerKeys || config.value.providerKeys || {}) }
+    if (next.apiKey.trim()) {
+      providerKeys[next.provider] = next.apiKey.trim()
+    }
     const normalized: AiModelConfig = {
       ...next,
       requestMode: 'direct',
+      providerKeys,
+      apiKey: next.apiKey.trim() || providerKeys[next.provider] || '',
     }
     config.value = normalized
     saveAiConfig(normalized)
@@ -50,33 +62,14 @@ export function useAiModelConfig() {
     config.value = {
       ...config.value,
       apiKey: '',
+      providerKeys: {},
       requestMode: 'direct',
     }
   }
 
   function applyProviderDefaults(provider: AiModelConfig['provider']) {
-    const d = AI_PROVIDER_DEFAULTS[provider]
-    config.value = {
-      ...config.value,
-      provider,
-      baseURL: d.baseURL,
-      model: d.model,
-      endpointMode: 'openai',
-      requestMode: 'direct',
-    }
+    config.value = switchProviderConfig(config.value, provider)
   }
-
-  watch(
-    () => config.value.provider,
-    (p) => {
-      const d = AI_PROVIDER_DEFAULTS[p]
-      if (config.value.baseURL === AI_PROVIDER_DEFAULTS.deepseek.baseURL
-        || Object.values(AI_PROVIDER_DEFAULTS).some((x) => x.baseURL === config.value.baseURL)) {
-        config.value.baseURL = d.baseURL
-        config.value.model = d.model
-      }
-    },
-  )
 
   return {
     config,

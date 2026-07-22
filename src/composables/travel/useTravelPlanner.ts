@@ -5,6 +5,7 @@ import { defaultTravelStartDate } from '@/services/travelWeatherCore'
 import { AiRequestError } from '@/services/travelAiChat'
 import { useAiModelConfig } from '@/composables/travel/useAiModelConfig'
 import type {
+  CustomDailyEvent,
   DailyWeather,
   DeparturePoint,
   DestinationIntent,
@@ -84,11 +85,14 @@ export function useTravelPlanner() {
   const preferEasyParking = ref(false)
   const maxWalkDistance = ref('0-500米')
   const specialPlaceHint = ref('')
+  const customDailyEvents = ref<CustomDailyEvent[]>([])
   const accommodationMode = ref<'auto' | 'homeEveryDay' | 'hotelNeeded' | 'campingOrCar' | 'noHotelPreferred'>('auto')
   const homeBaseAddress = ref('')
   const maxReturnDistanceKm = ref(80)
   const maxReturnDuration = ref('1.5小时')
   const accommodationNote = ref('')
+  const hotelDays = ref<number[]>([])
+  const hotelDayReason = ref('洗衣洗烘，补充补给')
 
   const destinationIntent = ref<DestinationIntent>(defaultDestinationIntent())
   const planResult = ref<DetailedTravelGuide | null>(null)
@@ -158,12 +162,15 @@ export function useTravelPlanner() {
       preferEasyParking: preferEasyParking.value,
       maxWalkDistance: maxWalkDistance.value,
       specialPlaceHint: specialPlaceHint.value,
+      customDailyEvents: customDailyEvents.value.filter((e) => e.enabled && e.title.trim()),
       accommodationPreference: {
         mode: accommodationMode.value,
         homeBaseAddress: homeBaseAddress.value || departurePoints.value[0]?.address || '',
         maxReturnDistanceKm: maxReturnDistanceKm.value,
         maxReturnDuration: maxReturnDuration.value,
         note: accommodationNote.value,
+        hotelDays: hotelDays.value,
+        hotelDayReason: hotelDayReason.value,
       },
     }
   }
@@ -369,11 +376,14 @@ export function useTravelPlanner() {
     preferEasyParking.value = false
     maxWalkDistance.value = '0-500米'
     specialPlaceHint.value = ''
+    customDailyEvents.value = []
     accommodationMode.value = 'auto'
     homeBaseAddress.value = ''
     maxReturnDistanceKm.value = 80
     maxReturnDuration.value = '1.5小时'
     accommodationNote.value = ''
+    hotelDays.value = []
+    hotelDayReason.value = '洗衣洗烘，补充补给'
     destinationIntent.value = defaultDestinationIntent()
     startDate.value = defaultTravelStartDate()
     planMode.value = 'simple'
@@ -440,11 +450,14 @@ export function useTravelPlanner() {
     preferEasyParking,
     maxWalkDistance,
     specialPlaceHint,
+    customDailyEvents,
     accommodationMode,
     homeBaseAddress,
     maxReturnDistanceKm,
     maxReturnDuration,
     accommodationNote,
+    hotelDays,
+    hotelDayReason,
     destinationIntent,
     startDate,
     planMode,

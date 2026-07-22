@@ -5,6 +5,7 @@ import type { AiModelConfig } from '@/types/travelTypes'
 import { AI_PROVIDER_DEFAULTS } from '@/composables/travel/useAiModelConfig'
 import { AiRequestError, testAiConnection } from '@/services/travelAiChat'
 import { useResponsive } from '@/composables/useResponsive'
+import { switchProviderConfig } from '@/utils/travelAiConfigStorage'
 
 const visible = defineModel<boolean>('visible', { required: true })
 const config = defineModel<AiModelConfig>('config', { required: true })
@@ -25,15 +26,8 @@ const showAdvanced = ref(false)
 const testing = ref(false)
 
 function onProviderChange(provider: AiModelConfig['provider']) {
-  const d = AI_PROVIDER_DEFAULTS[provider]
-  config.value = {
-    ...config.value,
-    provider,
-    baseURL: d.baseURL,
-    model: d.model,
-    endpointMode: 'openai',
-    requestMode: 'direct',
-  }
+  // 切换提供商时：保存当前 key，加载该提供商已保存的 key（没有则为空）
+  config.value = switchProviderConfig(config.value, provider)
 }
 
 function onEndpointModeChange(mode: 'openai' | 'anthropic') {
@@ -119,8 +113,9 @@ function handleSave() {
             v-model="config.apiKey"
             type="password"
             show-password
-            placeholder="请填写你自己的 API Key"
+            :placeholder="`请填写 ${AI_PROVIDER_DEFAULTS[config.provider]?.label || ''} 的 API Key`"
           />
+          <p class="key-hint">各模型密钥分开保存；切换提供商不会沿用上一个模型的 Key。</p>
         </el-form-item>
 
         <button type="button" class="advanced-toggle" @click="showAdvanced = !showAdvanced">
@@ -166,6 +161,13 @@ function handleSave() {
   font-size: 13px;
   color: #64748b;
   line-height: 1.5;
+}
+
+.key-hint {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: #94a3b8;
+  line-height: 1.4;
 }
 
 .model-config-body {

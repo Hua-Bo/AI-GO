@@ -237,6 +237,9 @@
     "copyDayReminderText": "readonly",
     "useResponsive": "readonly",
     "useAgriStore": "readonly",
-    "formatMoneyValue": "readonly"
+    "formatMoneyValue": "readonly",
+    "switchProviderConfig": "readonly",
+    "enrichStartPlan": "readonly",
+    "ElMessageBox": "readonly"
   }
 }

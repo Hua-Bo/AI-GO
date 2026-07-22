@@ -28,6 +28,7 @@ const loading = ref(false)
 const localSrc = ref('')
 const localStatus = ref<ImageStatus | undefined>(props.status)
 const localSource = ref(props.imageSource || '')
+const autoTried = ref(false)
 
 function isValidSrc(src?: string): boolean {
   if (!src) return false
@@ -60,6 +61,18 @@ watch(() => props.imageSource, (v) => {
   localSource.value = v || ''
 })
 
+// 无图时自动检索（维基百科 / Wikimedia / Openverse）
+watch(
+  () => [props.src, props.name, props.title, props.imageKeyword, props.city] as const,
+  async ([src, name, title, imageKeyword]) => {
+    if (isValidSrc(src) || loading.value || autoTried.value) return
+    if (!(name || title || imageKeyword)) return
+    autoTried.value = true
+    await retrySearch({ openOnFail: false })
+  },
+  { immediate: true },
+)
+
 function handleImageError() {
   imageError.value = true
 }
@@ -68,7 +81,7 @@ function openImageSearch() {
   window.open(`https://www.bing.com/images/search?q=${encodeURIComponent(searchKeyword.value)}`, '_blank')
 }
 
-async function retrySearch() {
+async function retrySearch(options?: { openOnFail?: boolean }) {
   if (loading.value) return
   loading.value = true
   imageError.value = false
@@ -89,7 +102,7 @@ async function retrySearch() {
       emit('update:imageSource', result.source)
     } else {
       localStatus.value = 'noReliableImage'
-      openImageSearch()
+      if (options?.openOnFail !== false) openImageSearch()
     }
   } finally {
     loading.value = false
@@ -109,7 +122,7 @@ async function retrySearch() {
       <img
         :src="displaySrc"
         :alt="alt || title || name || '景区图片'"
-        crossorigin="anonymous"
+        referrerpolicy="no-referrer"
         @error="handleImageError"
       >
       <div v-if="localSource || localStatus === 'uncertain'" class="image-caption">
@@ -122,7 +135,7 @@ async function retrySearch() {
       <div class="placeholder-title">暂未获取到可直接展示的图片</div>
       <div class="placeholder-desc">可点击查看网络图片或重新搜索</div>
       <div class="placeholder-actions">
-        <button type="button" class="retry-btn" @click="retrySearch">重新搜索图片</button>
+        <button type="button" class="retry-btn" @click="retrySearch()">重新搜索图片</button>
         <button type="button" class="search-btn" @click="openImageSearch">查看景区图片</button>
       </div>
     </div>

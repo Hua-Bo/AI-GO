@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import SegmentedControl from './SegmentedControl.vue'
 
 const accommodationMode = defineModel<'auto' | 'homeEveryDay' | 'hotelNeeded' | 'campingOrCar' | 'noHotelPreferred'>('accommodationMode', { required: false, default: 'auto' })
@@ -7,9 +7,12 @@ const homeBaseAddress = defineModel<string>('homeBaseAddress', { required: false
 const maxReturnDistanceKm = defineModel<number>('maxReturnDistanceKm', { required: false, default: 80 })
 const maxReturnDuration = defineModel<string>('maxReturnDuration', { required: false, default: '1.5小时' })
 const accommodationNote = defineModel<string>('accommodationNote', { required: false, default: '' })
+const hotelDays = defineModel<number[]>('hotelDays', { required: false, default: () => [] })
+const hotelDayReason = defineModel<string>('hotelDayReason', { required: false, default: '洗衣洗烘，补充补给' })
 
-defineProps<{
+const props = defineProps<{
   localTripDetected?: boolean
+  travelDays?: number
 }>()
 
 const accommodationOptions = [
@@ -34,6 +37,29 @@ const showHomeStayHint = computed(() =>
   accommodationMode.value === 'homeEveryDay' || accommodationMode.value === 'noHotelPreferred',
 )
 const showHotelHint = computed(() => accommodationMode.value === 'hotelNeeded')
+const showCampingHotelPicker = computed(() =>
+  accommodationMode.value === 'campingOrCar' || accommodationMode.value === 'noHotelPreferred',
+)
+
+const dayOptions = computed(() => {
+  const total = Math.max(props.travelDays || 1, 1)
+  return Array.from({ length: total }, (_, i) => i + 1)
+})
+
+watch(
+  () => props.travelDays,
+  (days) => {
+    const max = Math.max(days || 1, 1)
+    hotelDays.value = (hotelDays.value || []).filter((d) => d >= 1 && d <= max)
+  },
+)
+
+function toggleHotelDay(day: number) {
+  const set = new Set(hotelDays.value || [])
+  if (set.has(day)) set.delete(day)
+  else set.add(day)
+  hotelDays.value = [...set].sort((a, b) => a - b)
+}
 
 function selectDistance(km: number) {
   useCustomDistance.value = false
@@ -51,11 +77,11 @@ function enableCustomDistance() {
       <span class="form-card-icon">🏠</span>
       <div>
         <div class="form-card-title">住宿方式</div>
-        <div class="form-card-desc">设置回家策略或酒店需求</div>
+        <div class="form-card-desc">车宿/露营可指定某天住酒店洗衣洗烘</div>
       </div>
     </div>
 
-    <div v-if="localTripDetected && accommodationMode !== 'hotelNeeded'" class="smart-tip-card">
+    <div v-if="localTripDetected && accommodationMode !== 'hotelNeeded' && accommodationMode !== 'campingOrCar'" class="smart-tip-card">
       <span>✅</span>
       <div>
         <strong>已识别本地/周边短途</strong>
@@ -77,6 +103,34 @@ function enableCustomDistance() {
       <div v-if="showHotelHint" class="info-tip-card info">
         AI 会根据路线推荐住宿城市和区域。
       </div>
+      <div v-if="accommodationMode === 'campingOrCar'" class="info-tip-card info">
+        默认睡车/露营；可在下方勾选需要住酒店的天数（如洗烘衣服）。
+      </div>
+    </div>
+
+    <div v-if="showCampingHotelPicker" class="form-field">
+      <label class="form-label">指定住酒店的天数（可选）</label>
+      <div class="day-chips">
+        <button
+          v-for="day in dayOptions"
+          :key="day"
+          type="button"
+          class="day-chip"
+          :class="{ active: (hotelDays || []).includes(day) }"
+          @click="toggleHotelDay(day)"
+        >
+          第{{ day }}天
+        </button>
+      </div>
+      <el-input
+        v-if="(hotelDays || []).length"
+        v-model="hotelDayReason"
+        class="hotel-reason"
+        placeholder="住酒店原因，例如：洗衣洗烘、洗澡补给"
+      />
+      <p class="form-help">
+        例如 3-5 天车宿时，可勾选第 3 天住酒店，用酒店洗衣洗烘。
+      </p>
     </div>
 
     <div class="form-field">
@@ -126,7 +180,7 @@ function enableCustomDistance() {
         v-model="accommodationNote"
         type="textarea"
         :rows="2"
-        placeholder="例如：住滨湖区，无锡周边不要安排酒店，晚上回家睡"
+        placeholder="例如：电车睡车里，第3天住酒店洗衣；或住滨湖区晚上回家睡"
       />
     </div>
   </div>
@@ -178,6 +232,34 @@ function enableCustomDistance() {
 .custom-distance-input {
   margin-top: 8px;
   width: 100%;
+}
+
+.day-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.day-chip {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #475569;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.day-chip.active {
+  border-color: #2563eb;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.hotel-reason {
+  margin-top: 8px;
 }
 
 .info-tip-card {

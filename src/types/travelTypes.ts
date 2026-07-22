@@ -219,13 +219,30 @@ export interface RoutePlanningParams {
   preferEasyParking: boolean
   maxWalkDistance?: string
   specialPlaceHint?: string
+  /** 自定义每日必做事件，例如洗澡、洗衣、找带淋浴健身房 */
+  customDailyEvents?: CustomDailyEvent[]
   accommodationPreference: {
     mode: 'auto' | 'homeEveryDay' | 'hotelNeeded' | 'campingOrCar' | 'noHotelPreferred'
     homeBaseAddress?: string
     maxReturnDistanceKm?: number
     maxReturnDuration?: string
     note?: string
+    /** 车宿/露营模式下，指定哪几天必须住酒店（如洗衣洗烘） */
+    hotelDays?: number[]
+    /** 指定住酒店的原因，如「第3天用酒店洗衣洗烘」 */
+    hotelDayReason?: string
   }
+}
+
+export interface CustomDailyEvent {
+  id: string
+  title: string
+  description: string
+  /** daily=每天；everyOtherDay=最多间隔1天；hotelLaundryDays=仅住酒店那天；once=行程中至少一次 */
+  frequency: 'daily' | 'everyOtherDay' | 'hotelLaundryDays' | 'once'
+  /** 搜索/安排线索，如「24小时健身房带淋浴 团购单次卡」 */
+  searchHint?: string
+  enabled: boolean
 }
 
 export function needMeetingPlan(departurePoints: DeparturePoint[]): boolean {
@@ -647,8 +664,10 @@ export interface SpotDetail {
   avoidPitfalls: string[]
 }
 
+export type AiProvider = 'deepseek' | 'qwen' | 'zhipu' | 'openai' | 'longcat'
+
 export interface AiModelConfig {
-  provider: 'deepseek' | 'qwen' | 'zhipu' | 'openai' | 'longcat'
+  provider: AiProvider
   baseURL: string
   apiKey: string
   model: string
@@ -658,6 +677,8 @@ export interface AiModelConfig {
   temperature?: number
   maxTokens?: number
   thinkingEnabled?: boolean
+  /** 各提供商独立保存的 API Key，切换模型时互不覆盖 */
+  providerKeys?: Partial<Record<AiProvider, string>>
 }
 
 export interface RoutePlan {

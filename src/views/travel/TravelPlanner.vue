@@ -10,6 +10,8 @@ import {
   isPdfDownloadAvailable,
   printGuide,
 } from '@/services/travelExportApi'
+import { exportGuideToAmap } from '@/services/travelAmapExport'
+import AmapDayNavDialog from '@/components/travel/AmapDayNavDialog.vue'
 import TravelActionBar from '@/components/travel/TravelActionBar.vue'
 import MobileBottomBar from '@/components/travel/MobileBottomBar.vue'
 import AiConfigDialog from '@/components/travel/AiConfigDialog.vue'
@@ -19,6 +21,7 @@ import AccommodationPanel from '@/components/travel/AccommodationPanel.vue'
 import PreferenceSupplementPanel from '@/components/travel/PreferenceSupplementPanel.vue'
 import DepartureConfigPanel from '@/components/travel/DepartureConfigPanel.vue'
 import RoutePlanningResult from '@/components/travel/RoutePlanningResult.vue'
+import PlanningWaitPanel from '@/components/travel/PlanningWaitPanel.vue'
 import '@/styles/travel-theme.css'
 import '@/styles/travel-mobile.css'
 import '@/components/travel/travel-form.css'
@@ -36,9 +39,10 @@ const {
   withChildren, withElderly, avoidCrowded, preferNaturalScenery, preferFood, preferPhotoSpot,
   preferFreeSpots, preferParks, preferCamping, preferLakeside, preferForest, preferCityWalk,
   preferLowCost, avoidTicketsExpensive, preferDriveToSpot, preferRiverside, preferWaterPlay,
-  preferWildSpot, preferEasyParking, maxWalkDistance, specialPlaceHint,
+  preferWildSpot, preferEasyParking, maxWalkDistance, specialPlaceHint, customDailyEvents,
   accommodationMode, homeBaseAddress, maxReturnDistanceKm, maxReturnDuration, accommodationNote,
-  destinationIntent, startDate, planMode, remindBeforeMinutes, planResult,
+  hotelDays, hotelDayReason,
+  destinationIntent, startDate, planMode, remindBeforeMinutes, planResult, effectiveDays,
   planRoute, stopGeneration, retryCurrentStep, retryFromStart, retryFailedDay, regenerateBudget,
   addDeparture, removeDeparture, resetAll,
 } = useTravelPlanner()
@@ -53,6 +57,8 @@ const exportingWord = ref(false)
 const exportingPdf = ref(false)
 const exportingImage = ref(false)
 const exportingImagePlain = ref(false)
+const exportingAmap = ref(false)
+const amapDayNavVisible = ref(false)
 const pdfAvailable = isPdfDownloadAvailable()
 
 const fontScaleOptions = [
@@ -175,8 +181,14 @@ function onSaveAiConfig(cfg: typeof aiConfig.value) {
 }
 
 function onClearAiConfig() {
-  aiConfig.value.apiKey = ''
-  saveConfig({ ...aiConfig.value, apiKey: '', requestMode: 'direct' })
+  const providerKeys = { ...(aiConfig.value.providerKeys || {}) }
+  delete providerKeys[aiConfig.value.provider]
+  saveConfig({
+    ...aiConfig.value,
+    apiKey: '',
+    providerKeys,
+    requestMode: 'direct',
+  })
   if (stage.value !== 'planning') stage.value = 'needApiKey'
 }
 
@@ -193,7 +205,7 @@ async function handleExportWord() {
 async function handleDownloadPdf() {
   exportingPdf.value = true
   try {
-    await downloadGuidePdf()
+    await downloadGuidePdf(planResult.value || undefined)
   } finally {
     exportingPdf.value = false
   }
@@ -221,6 +233,21 @@ async function handleExportImagePlain() {
   } finally {
     exportingImagePlain.value = false
   }
+}
+
+async function handleExportAmap() {
+  if (!planResult.value) return
+  exportingAmap.value = true
+  try {
+    await exportGuideToAmap(planResult.value)
+  } finally {
+    exportingAmap.value = false
+  }
+}
+
+async function handleOpenAmapNav() {
+  if (!planResult.value) return
+  amapDayNavVisible.value = true
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -383,7 +410,10 @@ onBeforeUnmount(() => {
                   v-model:max-return-distance-km="maxReturnDistanceKm"
                   v-model:max-return-duration="maxReturnDuration"
                   v-model:accommodation-note="accommodationNote"
+                  v-model:hotel-days="hotelDays"
+                  v-model:hotel-day-reason="hotelDayReason"
                   :local-trip-detected="localTripDetected"
+                  :travel-days="effectiveDays"
                 />
 
                 <el-collapse v-model="mobileCollapse" class="mobile-collapse preference-section">
@@ -421,7 +451,10 @@ onBeforeUnmount(() => {
                         v-model:max-walk-distance="maxWalkDistance"
                       />
                     </section>
-                    <PreferenceSupplementPanel v-model:special-place-hint="specialPlaceHint" />
+                    <PreferenceSupplementPanel
+                      v-model:special-place-hint="specialPlaceHint"
+                      v-model:custom-daily-events="customDailyEvents"
+                    />
                   </el-collapse-item>
                 </el-collapse>
                 <section class="model-status-only">
@@ -475,7 +508,10 @@ onBeforeUnmount(() => {
                   v-model:max-return-distance-km="maxReturnDistanceKm"
                   v-model:max-return-duration="maxReturnDuration"
                   v-model:accommodation-note="accommodationNote"
+                  v-model:hotel-days="hotelDays"
+                  v-model:hotel-day-reason="hotelDayReason"
                   :local-trip-detected="localTripDetected"
+                  :travel-days="effectiveDays"
                 />
                 <el-collapse v-model="pcPrefsCollapse" class="mobile-collapse preference-section">
                   <el-collapse-item title="更多偏好" name="prefs">
@@ -512,7 +548,10 @@ onBeforeUnmount(() => {
                         v-model:max-walk-distance="maxWalkDistance"
                       />
                     </section>
-                    <PreferenceSupplementPanel v-model:special-place-hint="specialPlaceHint" />
+                    <PreferenceSupplementPanel
+                      v-model:special-place-hint="specialPlaceHint"
+                      v-model:custom-daily-events="customDailyEvents"
+                    />
                   </el-collapse-item>
                 </el-collapse>
                 <section class="model-status-only">
@@ -538,6 +577,7 @@ onBeforeUnmount(() => {
                 :exporting-image="exportingImage"
                 :pdf-available="pdfAvailable"
                 :exporting-image-plain="exportingImagePlain"
+                :exporting-amap="exportingAmap"
                 @reset="resetAll()"
                 @open-config="configDialogVisible = true"
                 @plan="planRoute()"
@@ -550,6 +590,8 @@ onBeforeUnmount(() => {
                 @print-guide="handlePrintGuide()"
                 @export-image="handleExportImage()"
                 @export-image-plain="handleExportImagePlain()"
+                @export-amap="handleExportAmap()"
+                @open-amap-nav="handleOpenAmapNav()"
               />
             </div>
           </aside>
@@ -570,10 +612,12 @@ onBeforeUnmount(() => {
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item :disabled="exportingWord" @click="handleExportWord()">导出 Word</el-dropdown-item>
-                    <el-dropdown-item :disabled="exportingPdf || !pdfAvailable" @click="handleDownloadPdf()">导出 PDF</el-dropdown-item>
+                    <el-dropdown-item :disabled="exportingPdf" @click="handleDownloadPdf()">导出 PDF</el-dropdown-item>
                     <el-dropdown-item @click="handlePrintGuide()">打印攻略</el-dropdown-item>
                     <el-dropdown-item :disabled="exportingImage" @click="handleExportImage()">保存长图</el-dropdown-item>
                     <el-dropdown-item :disabled="exportingImagePlain" @click="handleExportImagePlain()">无图长图</el-dropdown-item>
+                    <el-dropdown-item :disabled="exportingAmap" @click="handleExportAmap()">导出高德文件（看攻略内说明）</el-dropdown-item>
+                    <el-dropdown-item @click="handleOpenAmapNav()">按天高德导航</el-dropdown-item>
                     <el-dropdown-item @click="configDialogVisible = true">模型配置</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -602,7 +646,10 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
                 </el-collapse-item>
               </el-collapse>
             </div>
-            <div v-if="stage === 'input' || stage === 'needApiKey'" class="empty-tip empty-guide-card empty-trip-state no-print">
+
+            <PlanningWaitPanel :visible="isPlanning" :loading-step="loadingStep" />
+
+            <div v-if="(stage === 'input' || stage === 'needApiKey') && !isPlanning" class="empty-tip empty-guide-card empty-trip-state no-print">
               <div class="empty-trip-card">
                 <div class="icon">🧭</div>
                 <h3>准备好规划你的旅行了吗？</h3>
@@ -653,6 +700,10 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
           v-model:config="aiConfig"
           @save="onSaveAiConfig"
           @clear="onClearAiConfig"
+        />
+        <AmapDayNavDialog
+          v-model:visible="amapDayNavVisible"
+          :guide="planResult"
         />
       </div>
     </div>

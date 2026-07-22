@@ -84,6 +84,18 @@ async function handleCopyAllReminders() {
       </div>
     </div>
 
+    <section class="amap-section guide-section no-print">
+      <h3 class="section-title">导入高德导航（使用说明）</h3>
+      <ol class="amap-steps">
+        <li>在左侧/导出区点击 <strong>导出高德文件</strong>，会下载 CSV、KML、GPX 三个文件。</li>
+        <li>电脑浏览器打开 <a href="https://wia.amap.com" target="_blank" rel="noopener noreferrer">wia.amap.com</a>，登录高德账号。</li>
+        <li>创建或打开一张地图 → 点 <strong>批量导入</strong> → 上传 <strong>CSV（推荐）</strong> 或 KML。</li>
+        <li>手机打开高德 App → <strong>地图小程序</strong> → 打开刚导入的地图，即可查看途经点。</li>
+        <li>若只想当天开跑：点 <strong>按天高德导航</strong>，输入天数即可调起高德驾车导航。</li>
+      </ol>
+      <p class="amap-tip">注意：高德手机 App 不能直接“打开某个路线文件”；必须先用电脑端地图小程序导入。KML 导入时数据来源请选谷歌/WGS84。</p>
+    </section>
+
     <section class="calendar-section guide-section no-print">
       <h3 class="section-title">手机日历提醒</h3>
       <p class="calendar-desc">将每天的出发、景点、用餐时间添加到系统日历，系统会按设置时间提前提醒你。</p>
@@ -280,6 +292,28 @@ async function handleCopyAllReminders() {
 .budget-reference .tip { color: #0369a1; }
 .risk-alert { margin-bottom: 8px; }
 .calendar-section { margin-bottom: 24px; }
+.amap-section { margin-bottom: 24px; }
+.amap-steps {
+  margin: 0 0 8px;
+  padding-left: 20px;
+  font-size: 14px;
+  color: #334155;
+  line-height: 1.7;
+}
+.amap-steps a {
+  color: #15803d;
+  font-weight: 700;
+}
+.amap-tip {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  font-size: 13px;
+  line-height: 1.55;
+}
 .calendar-desc { margin: 0 0 8px; font-size: 14px; color: #475569; line-height: 1.6; }
 .calendar-hint { margin: 0 0 8px; font-size: 12px; color: #94a3b8; line-height: 1.55; }
 .calendar-limit { margin: 0 0 14px; font-size: 11px; color: #b45309; line-height: 1.5; }

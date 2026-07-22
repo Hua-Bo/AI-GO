@@ -15,6 +15,7 @@ defineProps<{
   exportingPdf: boolean
   exportingImage: boolean
   exportingImagePlain: boolean
+  exportingAmap?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -29,6 +30,8 @@ const emit = defineEmits<{
   printGuide: []
   exportImage: []
   exportImagePlain: []
+  exportAmap: []
+  openAmapNav: []
   openConfig: []
 }>()
 </script>
@@ -57,6 +60,34 @@ const emit = defineEmits<{
       <el-button size="small" :disabled="!guideReady" @click="emit('printGuide')">打印</el-button>
       <el-button size="small" :disabled="!guideReady" :loading="exportingImage" @click="emit('exportImage')">长图</el-button>
       <el-button size="small" :disabled="!guideReady" :loading="exportingImagePlain" @click="emit('exportImagePlain')">无图长图</el-button>
+      <el-button size="small" type="success" :disabled="!guideReady" :loading="exportingAmap" @click="emit('exportAmap')">导出高德文件</el-button>
+      <el-button size="small" type="success" plain :disabled="!guideReady" @click="emit('openAmapNav')">按天高德导航</el-button>
+    </div>
+
+    <div v-if="guideReady" class="amap-help">
+      <div class="amap-help-title">高德怎么用？</div>
+      <ol class="amap-help-list">
+        <li>
+          <strong>导出高德文件</strong>：下载 CSV / KML / GPX。
+        </li>
+        <li>
+          电脑打开
+          <a href="https://wia.amap.com" target="_blank" rel="noopener noreferrer">wia.amap.com</a>
+          ，登录高德账号。
+        </li>
+        <li>
+          创建或打开一张地图 → 点<strong>批量导入</strong> → 上传刚下载的 <strong>CSV</strong>（推荐）或 <strong>KML</strong>。
+        </li>
+        <li>
+          手机打开高德 App → <strong>地图小程序</strong> → 找到刚导入的地图即可查看路线。
+        </li>
+        <li>
+          <strong>按天高德导航</strong>：选某一天，直接调起高德驾车导航（适合当天开跑）。
+        </li>
+      </ol>
+      <p class="amap-help-note">
+        说明：高德 App 不能直接打开随便一个文件；需要先用电脑端「地图小程序」导入。KML 导入时数据来源选谷歌/WGS84。
+      </p>
     </div>
     <div class="action-status">
       <div>{{ hasApiKey ? `当前模型：${modelName || '已配置'}` : '当前模型：未配置' }}</div>
@@ -124,6 +155,46 @@ const emit = defineEmits<{
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.amap-help {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  color: #166534;
+}
+
+.amap-help-title {
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.amap-help-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.amap-help-list li + li {
+  margin-top: 4px;
+}
+
+.amap-help-list a {
+  color: #15803d;
+  font-weight: 700;
+  text-decoration: underline;
+}
+
+.amap-help-note {
+  margin: 8px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #3f6212;
+  opacity: 0.9;
 }
 .action-status {
   margin-top: 10px;
