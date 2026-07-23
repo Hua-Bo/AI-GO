@@ -45,7 +45,7 @@ const {
   accommodationMode, homeBaseAddress, maxReturnDistanceKm, maxReturnDuration, accommodationNote,
   hotelDays, hotelDayReason,
   destinationIntent, startDate, planMode, remindBeforeMinutes, fetchScenicImages, hydratingImages,
-  planningMode, weatherFetched, generationState, planResult, effectiveDays,
+  planningMode, weatherFetched, generationState, planResult, effectiveDays, outlineRevisionNote,
   planRoute, reviseOutline, confirmOutlineAndGenerateDetail, stopGeneration, retryCurrentStep, retryFromStart, retryFailedDay, regenerateBudget, regenerateDailyDetails, hydrateImagesNow,
   addDeparture, removeDeparture, resetAll,
 } = useTravelPlanner()
@@ -693,6 +693,9 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
               v-if="outlineReady && currentOutline && !isPlanning"
               :outline="currentOutline"
               :revising="isPlanning"
+              :destination-intent="destinationIntent"
+              :travel-days="effectiveDays"
+              :outline-revision-note="outlineRevisionNote"
               @confirm="confirmOutlineAndGenerateDetail()"
               @revise="reviseOutline($event)"
               @restart="planRoute()"

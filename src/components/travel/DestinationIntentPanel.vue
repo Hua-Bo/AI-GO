@@ -79,7 +79,7 @@ const returnTripOptions = [
         v-model="destination.extraNote"
         type="textarea"
         :rows="2"
-        placeholder="例如：想沿途边走边玩，不想每天开太久，优先湖边和美食"
+        placeholder="例如：想沿途边走边玩；返程不要一天开完；不在广西境内过夜（可途经、勿停百色）"
       />
     </div>
   </div>

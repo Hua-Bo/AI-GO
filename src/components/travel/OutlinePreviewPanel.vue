@@ -1,11 +1,15 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { GuideOutline } from '@/types/travelTypes'
+import type { DestinationIntent, GuideOutline } from '@/types/travelTypes'
 import { parseDistanceKm, MAX_REASONABLE_DAILY_KM } from '@/services/travelHighwayToll'
+import { analyzeOutlineWarnings } from '@/services/travelOutlineConstraints'
 
 const props = defineProps<{
   outline: GuideOutline
   revising?: boolean
+  destinationIntent?: DestinationIntent
+  travelDays?: number
+  outlineRevisionNote?: string
 }>()
 
 const emit = defineEmits<{
@@ -16,9 +20,42 @@ const emit = defineEmits<{
 
 const revisionNote = ref('')
 
-const warningDays = computed(() =>
-  (props.outline.dailyOutlines || []).filter((d) => parseDistanceKm(d.distance) > MAX_REASONABLE_DAILY_KM),
-)
+const outlineWarnings = computed(() => {
+  if (!props.destinationIntent) {
+    return (props.outline.dailyOutlines || [])
+      .filter((d) => parseDistanceKm(d.distance) > MAX_REASONABLE_DAILY_KM)
+      .map((d) => `第 ${d.day} 天里程过大`)
+  }
+  return analyzeOutlineWarnings(props.outline, {
+    departurePoints: [],
+    destinationIntent: props.destinationIntent,
+    travelDays: props.travelDays || props.outline.travelDays || 1,
+    outlineRevisionNote: props.outlineRevisionNote,
+    budgetLevel: 'medium',
+    pace: 'normal',
+    travelThemes: [],
+    withChildren: false,
+    withElderly: false,
+    avoidCrowded: false,
+    preferNaturalScenery: false,
+    preferFood: false,
+    preferPhotoSpot: false,
+    preferFreeSpots: false,
+    preferParks: false,
+    preferCamping: false,
+    preferLakeside: false,
+    preferForest: false,
+    preferCityWalk: false,
+    preferLowCost: false,
+    avoidTicketsExpensive: false,
+    preferDriveToSpot: false,
+    preferRiverside: false,
+    preferWaterPlay: false,
+    preferWildSpot: false,
+    preferEasyParking: false,
+    accommodationPreference: { mode: 'auto' },
+  })
+})
 
 const overnightLabel = (type?: string, overnight?: string) => {
   if (overnight) return overnight
@@ -48,13 +85,17 @@ function submitRevise() {
     </div>
 
     <el-alert
-      v-if="warningDays.length"
+      v-if="outlineWarnings.length"
       type="error"
       show-icon
       :closable="false"
       class="warn-alert"
-      :title="`有 ${warningDays.length} 天里程偏大（>${MAX_REASONABLE_DAILY_KM}km），建议在下方提出修改意见后重新生成大纲`"
-    />
+      :title="`发现 ${outlineWarnings.length} 处问题，建议先改意见再确认细行程`"
+    >
+      <ul class="warn-list">
+        <li v-for="(w, i) in outlineWarnings" :key="i">{{ w }}</li>
+      </ul>
+    </el-alert>
 
     <section class="block">
       <h3>总路线说明</h3>
@@ -122,7 +163,7 @@ function submitRevise() {
 
     <section class="revise-block">
       <h3>提出修改意见</h3>
-      <p class="hint">例如：「返程不要一天开 1400km，拆成西安→重庆→南宁两天」「第 12 天纳曲到格尔木太远，中间加休息日」</p>
+      <p class="hint">例如：「返程约 2500km 请拆成 4–5 天，不要最后一天示意」「不在广西过夜，倒数第二晚住贵州，最后一天直回南宁」</p>
       <el-input
         v-model="revisionNote"
         type="textarea"
@@ -177,6 +218,7 @@ function submitRevise() {
   opacity: 0.85;
 }
 .warn-alert { margin-bottom: 12px; }
+.warn-list { margin: 6px 0 0; padding-left: 18px; line-height: 1.55; }
 .block { margin-top: 16px; }
 .block h3, .block h4 {
   margin: 0 0 8px;

@@ -1,6 +1,11 @@
 import { AiJsonParseError, callAiChatJson } from '@/services/travelAiChat'
 import { getScenicImage, buildScenicImageKeyword, batchGetScenicImages } from '@/services/travelImageApi'
 import { estimateHighwayTollsFromDailyPlans, mergeHighwayIntoBudget } from '@/services/travelHighwayToll'
+import {
+  buildHardTravelConstraints,
+  buildReturnDayBudgetHint,
+  formatOutlineDayHint,
+} from '@/services/travelOutlineConstraints'
 import type {
   AiModelConfig,
   DetailedBudget,
@@ -10,6 +15,7 @@ import type {
   DetailedTravelGuide,
   GuideOutline,
   GuideTipsResult,
+  OutlineDayPlan,
   PlanGenerationState,
   PlanStep,
   RoutePlanningParams,
@@ -261,7 +267,8 @@ ${buildWeatherListContext(params)}
 【特殊点位线索】${params.specialPlaceHint || '无'}
 【自定义每日事件（必须写入 timeline）】
 ${buildCustomEventsPrefs(params)}
-【住宿偏好】${buildAccommodationPrefs(params)}`
+【住宿偏好】${buildAccommodationPrefs(params)}
+${buildHardTravelConstraints(params)}`
 }
 
 async function callStep<T>(params: {
@@ -349,9 +356,10 @@ ${revision ? `\n【用户修改意见（必须遵守）】\n${revision}\n` : ''}
 1. 必须返回 dailyOutlines 数组，长度 = travelDays，每天一条。
 2. 每天字段：day, from, to, distance（如「530km」）, driveTime（如「约6小时」）, attractions[]（真实景点名）, overnight（过夜城市或「车宿」）, overnightType（car|hotel|home|camping）, note。
 3. 单日自驾里程一般 ≤ 600–700km，极限不超过 800km；严禁出现一天开 1000km+/1400km 的安排，返程必须拆成多天。
-4. 环线/长途必须把去程与返程都合理拆天，不要把返程硬塞进最后一天。
-5. routeSummary 用连贯段落概括全程（可按天简述），类似「总路线说明」。
-6. 另给：accommodationStrategy、foodHighlights[]、photoHighlights[]、dailyArrangementNote、routeHighlights[]、coreCities[]。
+4. 环线/长途必须把去程与返程都合理拆天，不要把返程硬塞进最后一天；禁止「返程示意 / 0公里 / 休整结束」占位天。
+5. ${buildReturnDayBudgetHint(params) || '合理分配去程与游玩天数。'}
+6. routeSummary 用连贯段落概括全程（可按天简述），类似「总路线说明」。
+7. 另给：accommodationStrategy、foodHighlights[]、photoHighlights[]、dailyArrangementNote、routeHighlights[]、coreCities[]。
 
 字段：title, subtitle, summary, destination, routeName, routeType(direct|loop|oneWay|multiCity), coreCities[], totalPeople, travelDays, routeSummary, routeHighlights[], dailyOutlines[], accommodationStrategy, foodHighlights[], photoHighlights[], dailyArrangementNote`,
     maxTokens: 4096,
@@ -420,6 +428,7 @@ export async function generateDailyPlanByAi(
   day: number,
   context: {
     outline: GuideOutline
+    outlineDay?: OutlineDayPlan
     startPlan?: StartPlan
     meetingPlan?: DetailedMeetingPlan
     previousDays: DetailedDailyPlan[]
@@ -435,17 +444,27 @@ export async function generateDailyPlanByAi(
     ? `【出发方案】从 ${context.startPlan.fromAddress} 出发，第一站 ${context.startPlan.firstStopCity}，${context.startPlan.routeDescription}`
     : `【集合城市】${context.meetingPlan?.meetingCity}，${context.meetingPlan?.meetingPlaceName}`
 
+  const daySkeleton = context.outlineDay
+    ? formatOutlineDayHint(context.outlineDay)
+    : (context.outline.dailyOutlines || []).find((d) => d.day === day)
+      ? formatOutlineDayHint((context.outline.dailyOutlines || []).find((d) => d.day === day)!)
+      : ''
+
   const makePrompt = (retryReason = '') => ({
     config,
     systemPrompt: `${BASE_SYSTEM} 你现在只需要生成第 ${day} 天的 DetailedDailyPlan JSON。不要返回其他天。
 ${buildPlanModeConstraint(params.planMode)}
 每天至少给出2个真实地点（长途赶路日除外）。timeline 和 scenicSpots 必须写具体景区名，禁止笼统描述。
 必须结合当日天气调整行程，恶劣天气不得安排高风险户外活动。
-自驾单日里程一般不超过 700km，严禁一天安排 1000km 以上。若大纲中该天已给出 from/to/景点，请严格按大纲展开，不要擅自改路线骨架。`,
+自驾单日里程一般不超过 700km，严禁一天安排 1000km 以上。若大纲中该天已给出 from/to/景点，请严格按大纲展开，不要擅自改路线骨架。
+禁止写成 0 公里占位、示意返程、同城休整结束；必须给出真实里程与起终点。`,
     userPrompt: `请只生成第 ${day} 天（共 ${params.travelDays} 天）的 DetailedDailyPlan JSON。
 ${retryReason ? `\n${retryReason}\n` : ''}
 ${buildParamsContext(params)}
 ${buildWeatherContextForDay(params, day)}
+
+【本天大纲骨架（必须严格按此 from/to/过夜展开）】
+${daySkeleton || '（大纲未提供该天骨架，请按总览合理安排，仍须真实里程）'}
 
 【路线总览】${context.outline.routeSummary}
 ${departCtx}
@@ -490,7 +509,7 @@ export async function generateBudgetByAi(
   signal?: AbortSignal,
 ): Promise<DetailedBudget> {
   const daysSummary = dailyPlans.map((d) =>
-    `第${d.day}天 ${d.startCity}→${d.endCity} 里程${d.transportSummary?.totalDistance || '—'} 预算约${d.dayBudget.dayTotal || '—'}`,
+    `第${d.day}天 ${d.startCity}→${d.endCity} 里程${d.transportSummary?.totalDistance || '—'} 预算约${d.dayBudget?.dayTotal || '—'}`,
   ).join('\n')
   const hasSelfDrive = params.departurePoints.some((d) => d.transportType === 'selfDriving')
 
@@ -768,6 +787,7 @@ export async function planRouteByAi(
         const previousDays = state.dailyPlans
           .filter((p) => p.day < day)
           .sort((a, b) => a.day - b.day)
+        const outlineDay = (state.outline!.dailyOutlines || []).find((d) => d.day === day)
         const dailyPlan = await runStep('daily', day, () =>
           generateDailyPlanByAi(
             params,
@@ -779,6 +799,7 @@ export async function planRouteByAi(
                   ? `${state.outline!.routeSummary}\n【用户已确认的按天大纲】\n${outlineDaysHint}`
                   : state.outline!.routeSummary,
               },
+              outlineDay,
               startPlan: state.startPlan ?? undefined,
               meetingPlan: state.meetingPlan ?? undefined,
               previousDays,

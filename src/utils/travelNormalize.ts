@@ -588,7 +588,7 @@ function forceHomeHotel(day: DetailedDailyPlan, homeBase: string): DetailedDaily
       bookingTips: ['无需预订酒店', '建议提前确认第二天出发时间'],
     },
     dayBudget: {
-      ...day.dayBudget,
+      ...normalizeDailyBudget(day.dayBudget),
       hotel: '0元',
     },
   }
@@ -607,7 +607,7 @@ function forceCarOrCampingHotel(day: DetailedDailyPlan, city: string): DetailedD
       bookingTips: ['选择合法可过夜停车点或正规营地', '注意通风、用电与人身安全'],
     },
     dayBudget: {
-      ...day.dayBudget,
+      ...normalizeDailyBudget(day.dayBudget),
       hotel: '0元',
     },
   }
@@ -672,10 +672,13 @@ function normalizeHotelByContext(day: DetailedDailyPlan, params: RoutePlanningPa
 }
 
 export function normalizeDailyBudget(raw: unknown): DailyBudget {
-  const item = raw as Partial<DailyBudget> & { budgetEstimate?: string }
+  if (raw == null) {
+    return { transport: '', tickets: '', food: '', hotel: '', other: '', dayTotal: '' }
+  }
   if (typeof raw === 'string') {
     return { transport: '', tickets: '', food: '', hotel: '', other: '', dayTotal: raw }
   }
+  const item = raw as Partial<DailyBudget> & { budgetEstimate?: string }
   return {
     transport: String(item.transport || ''),
     tickets: String(item.tickets || ''),
@@ -993,6 +996,15 @@ export function composeDetailedGuide(parts: {
 }
 
 export function normalizeBudget(raw: unknown): DetailedBudget {
+  if (raw == null || typeof raw !== 'object') {
+    return {
+      currency: 'CNY',
+      perPersonEstimate: '见明细',
+      totalEstimate: '—',
+      items: [],
+      notes: [],
+    }
+  }
   const item = raw as Partial<DetailedBudget> & {
     transport?: string; hotel?: string; tickets?: string; food?: string; other?: string; total?: string
   }

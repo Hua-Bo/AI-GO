@@ -759,6 +759,7 @@ export function useTravelPlanner() {
     remindBeforeMinutes,
     fetchScenicImages,
     hydratingImages,
+    outlineRevisionNote,
     planningMode,
     weatherFetched,
     generationState,
