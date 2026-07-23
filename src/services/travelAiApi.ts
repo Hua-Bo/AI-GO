@@ -1,5 +1,6 @@
 import { AiJsonParseError, callAiChatJson } from '@/services/travelAiChat'
-import { getScenicImage, buildScenicImageKeyword } from '@/services/travelImageApi'
+import { getScenicImage, buildScenicImageKeyword, batchGetScenicImages } from '@/services/travelImageApi'
+import { estimateHighwayTollsFromDailyPlans, mergeHighwayIntoBudget } from '@/services/travelHighwayToll'
 import type {
   AiModelConfig,
   DetailedBudget,
@@ -49,6 +50,8 @@ export interface PlanRouteOptions {
   existing?: Partial<PlanGenerationState>
   fromStep?: PlanStep
   retryDay?: number
+  /** 生成到该步骤后停止（含该步）。如 'outline' 只生成大纲 */
+  stopAfterStep?: PlanStep
 }
 
 const BASE_SYSTEM = `你是专业旅游路线规划师，擅长撰写真实、可执行的图文攻略。只输出严格 JSON，不要 Markdown，不要解释。
@@ -333,16 +336,26 @@ export async function generateGuideOutlineByAi(
   config: AiModelConfig,
   signal?: AbortSignal,
 ): Promise<GuideOutline> {
+  const revision = params.outlineRevisionNote?.trim()
   const raw = await callStep<Partial<GuideOutline>>({
     config,
-    systemPrompt: `${BASE_SYSTEM} 你现在只需要生成 GuideOutline JSON，不要返回每日行程、集合点详情或预算。`,
-    userPrompt: `请生成路线总览 GuideOutline JSON。
+    systemPrompt: `${BASE_SYSTEM} 你现在只需要生成 GuideOutline JSON（含按天大纲 dailyOutlines），不要返回每日细行程 timeline、集合点详情或预算。`,
+    userPrompt: `请生成路线大纲 GuideOutline JSON，供用户确认后再写细行程。
 
 ${buildParamsContext(params)}
+${revision ? `\n【用户修改意见（必须遵守）】\n${revision}\n` : ''}
 
-字段：title, subtitle, summary, destination, routeName, routeType(direct|loop|oneWay|multiCity), coreCities[], totalPeople, travelDays, routeSummary, routeHighlights[]`,
-    maxTokens: 2048,
-    expectedSchemaHint: 'GuideOutline 对象，含 title/subtitle/summary/destination/routeName/routeType/coreCities/totalPeople/travelDays/routeSummary/routeHighlights',
+硬性约束（非常重要）：
+1. 必须返回 dailyOutlines 数组，长度 = travelDays，每天一条。
+2. 每天字段：day, from, to, distance（如「530km」）, driveTime（如「约6小时」）, attractions[]（真实景点名）, overnight（过夜城市或「车宿」）, overnightType（car|hotel|home|camping）, note。
+3. 单日自驾里程一般 ≤ 600–700km，极限不超过 800km；严禁出现一天开 1000km+/1400km 的安排，返程必须拆成多天。
+4. 环线/长途必须把去程与返程都合理拆天，不要把返程硬塞进最后一天。
+5. routeSummary 用连贯段落概括全程（可按天简述），类似「总路线说明」。
+6. 另给：accommodationStrategy、foodHighlights[]、photoHighlights[]、dailyArrangementNote、routeHighlights[]、coreCities[]。
+
+字段：title, subtitle, summary, destination, routeName, routeType(direct|loop|oneWay|multiCity), coreCities[], totalPeople, travelDays, routeSummary, routeHighlights[], dailyOutlines[], accommodationStrategy, foodHighlights[], photoHighlights[], dailyArrangementNote`,
+    maxTokens: 4096,
+    expectedSchemaHint: 'GuideOutline 对象，必须含 dailyOutlines[] 与 routeSummary',
     signal,
   })
   return normalizeGuideOutline(raw, params)
@@ -427,7 +440,8 @@ export async function generateDailyPlanByAi(
     systemPrompt: `${BASE_SYSTEM} 你现在只需要生成第 ${day} 天的 DetailedDailyPlan JSON。不要返回其他天。
 ${buildPlanModeConstraint(params.planMode)}
 每天至少给出2个真实地点（长途赶路日除外）。timeline 和 scenicSpots 必须写具体景区名，禁止笼统描述。
-必须结合当日天气调整行程，恶劣天气不得安排高风险户外活动。`,
+必须结合当日天气调整行程，恶劣天气不得安排高风险户外活动。
+自驾单日里程一般不超过 700km，严禁一天安排 1000km 以上。若大纲中该天已给出 from/to/景点，请严格按大纲展开，不要擅自改路线骨架。`,
     userPrompt: `请只生成第 ${day} 天（共 ${params.travelDays} 天）的 DetailedDailyPlan JSON。
 ${retryReason ? `\n${retryReason}\n` : ''}
 ${buildParamsContext(params)}
@@ -446,8 +460,9 @@ timeline 每项必须含：time、title、location、description、duration、co
 若不住酒店，hotelSuggestion 使用：needed=false,type=home,area=回家过夜,priceRange=0元。
 若住宿模式为露营/车宿：默认 needed=false,type=car 或 camping；若当天属于用户指定住酒店天数，则必须 needed=true,type=hotel，并在 reason 中写明洗衣洗烘等原因。
 自定义每日事件必须落到 timeline：例如“洗澡/健身房淋浴”，请在当天城市推荐具体可执行点位（如24小时健身房带淋浴、团购单次卡），写清时间与费用。
-${params.planMode === 'simple' ? '精简版：timeline 控制在 3-4 个节点，description 简短，scenicSpots 最多 3 个。' : '详细版：timeline 完整展开，meals 与 dayBudget 必须填写，恶劣天气必须写 badWeatherAlternative。'}
+${params.planMode === 'simple' ? '精简版：timeline 控制在 3-4 个节点，description 简短，scenicSpots 最多 3 个；meals 至少 2 条（午/晚）。' : '详细版：timeline 完整展开，meals 与 dayBudget 必须填写，恶劣天气必须写 badWeatherAlternative。'}
 scenicSpots 每项必须含：name, city, province, spotType, isFree, ticketPrice, costTips[], suggestedDuration, suitableFor[], playRoute[], mustSeePoints[], photoSpots[], avoidPitfalls[], parkingInfo, imageKeyword, carAccess{canDriveNear,parkingDistance,parkingInfo,roadCondition,walkingDistance,safetyNote}。
+meals[] 每项必须是真实可吃的店名/菜名，字段：mealType(breakfast|lunch|dinner|snack), city, recommendation（店名或招牌菜，禁止写「当地美食」「视情况」等空话）, reason（一句话为什么推荐）, estimatedCost（如「人均 40-60 元」）, nearbyArea。
 还必须含：day=${day}, title, dateText, startCity, endCity, overnightCity, daySummary, transportSummary, timeline[], scenicSpots[], meals[], hotelSuggestion, dayBudget, tips[], reminders[], badWeatherAlternative?`,
     maxTokens: 6144,
     expectedSchemaHint: `第 ${day} 天的 DetailedDailyPlan 对象`,
@@ -475,8 +490,9 @@ export async function generateBudgetByAi(
   signal?: AbortSignal,
 ): Promise<DetailedBudget> {
   const daysSummary = dailyPlans.map((d) =>
-    `第${d.day}天 ${d.startCity}→${d.endCity} 预算约${d.dayBudget.dayTotal || '—'}`,
+    `第${d.day}天 ${d.startCity}→${d.endCity} 里程${d.transportSummary?.totalDistance || '—'} 预算约${d.dayBudget.dayTotal || '—'}`,
   ).join('\n')
+  const hasSelfDrive = params.departurePoints.some((d) => d.transportType === 'selfDriving')
 
   const raw = await callStep<Partial<DetailedBudget>>({
     config,
@@ -496,7 +512,8 @@ ${daysSummary}
 无锡周边2日电车自驾且低成本场景，总预算通常应在600-1200附近（以实际为准）。
 如果每日行程为回家过夜、车宿/露营或不住酒店，住宿预算应为0元，不得再计入酒店费用。
 若用户指定了某天住酒店（如洗衣洗烘），仅该天计入酒店费用。
-必须包含：currency, perPersonEstimate, totalEstimate, items[]（category: transport/hotel/ticket/food/parking/charging/fuel/other）, notes[]。perPersonEstimate 与 totalEstimate 必须是字符串（如「约 600-900 元/人」），不要返回对象。价格写区间并注明“以实际为准”。`,
+${hasSelfDrive ? `- 自驾必须单独列出 category=highway 的高速费项：按每日里程粗估（约 0.5 元/km×约70%高速占比），description 写清各天区间；另用 fuel 或 charging 写能源费，不要把高速费混进 oil/充电里。` : ''}
+必须包含：currency, perPersonEstimate, totalEstimate, items[]（category: transport/hotel/ticket/food/parking/charging/fuel/highway/other）, notes[]。perPersonEstimate 与 totalEstimate 必须是字符串（如「约 600-900 元/人」），不要返回对象。价格写区间并注明“以实际为准”。`,
     maxTokens: 3072,
     expectedSchemaHint: 'DetailedBudget 对象，含 currency/perPersonEstimate/totalEstimate/items/notes',
     signal,
@@ -571,7 +588,7 @@ function attachSpotImage(s: DetailedScenicSpot, imageMap: Map<string, import('@/
   }
 }
 
-async function hydrateGuideImages(
+export async function hydrateGuideImages(
   guide: DetailedTravelGuide,
   onProgress?: (s: string) => void,
 ): Promise<DetailedTravelGuide> {
@@ -579,18 +596,35 @@ async function hydrateGuideImages(
   const total = spots.length
   onProgress?.(total ? `正在获取景区图片 0/${total}` : '正在获取景区图片')
 
-  const imageMap = new Map<string, import('@/services/travelImageApi').ScenicImageResult>()
   let done = 0
+  const imageMap = await batchGetScenicImages(spots, {
+    concurrency: 3,
+    onProgress: (finished, all, spot) => {
+      done = finished
+      onProgress?.(`正在获取景区图片 ${finished}/${all}：${spot?.name || ''}`)
+    },
+  }).catch(async () => {
+    // batch 失败时退回串行
+    const map = new Map<string, import('@/services/travelImageApi').ScenicImageResult>()
+    for (const spot of spots) {
+      const kw = spot.imageKeyword || buildScenicImageKeyword(spot)
+      const result = await getScenicImage({ ...spot, imageKeyword: kw })
+      map.set(kw, result)
+      map.set(`${spot.city}-${spot.name}`, result)
+      done += 1
+      onProgress?.(`正在获取景区图片 ${done}/${total}：${spot.name}`)
+    }
+    return map
+  })
+
+  // 确保 keyword 与 city-name 双索引
   for (const spot of spots) {
     const kw = spot.imageKeyword || buildScenicImageKeyword(spot)
-    const result = await getScenicImage({
-      ...spot,
-      imageKeyword: kw,
-    })
-    imageMap.set(kw, result)
-    imageMap.set(`${spot.city}-${spot.name}`, result)
-    done += 1
-    onProgress?.(`正在获取景区图片 ${done}/${total}：${spot.name}`)
+    const hit = imageMap.get(kw) || imageMap.get(`${spot.city}-${spot.name}`)
+    if (hit) {
+      imageMap.set(kw, hit)
+      imageMap.set(`${spot.city}-${spot.name}`, hit)
+    }
   }
 
   const attach = (s: DetailedScenicSpot) => attachSpotImage(s, imageMap)
@@ -635,8 +669,8 @@ export async function planRouteByAi(
   params: RoutePlanningParams,
   config: AiModelConfig,
   options: PlanRouteOptions = {},
-): Promise<DetailedTravelGuide> {
-  const { onProgress, onStateUpdate, signal, existing, fromStep, retryDay } = options
+): Promise<DetailedTravelGuide | null> {
+  const { onProgress, onStateUpdate, signal, existing, fromStep, retryDay, stopAfterStep } = options
 
   const state: PlanGenerationState = {
     outline: existing?.outline ?? null,
@@ -650,16 +684,18 @@ export async function planRouteByAi(
   const multiDep = needMeetingPlan(params.departurePoints)
 
   const emitState = () => onStateUpdate?.({ ...state, dailyPlans: [...state.dailyPlans] })
+  const shouldStopAfter = (step: PlanStep) => stopAfterStep === step
 
   try {
     if (shouldRunStep('outline', fromStep, retryDay) && !retryDay) {
       checkAbort(signal)
-      onProgress?.('正在生成路线总览')
+      onProgress?.('正在生成路线大纲')
       state.outline = await runStep('outline', undefined, () =>
         generateGuideOutlineByAi(params, config, signal),
       )
       emitState()
-      onProgress?.('路线总览生成完成')
+      onProgress?.('路线大纲生成完成')
+      if (shouldStopAfter('outline')) return null
     }
 
     if (!state.outline) {
@@ -667,6 +703,7 @@ export async function planRouteByAi(
         generateGuideOutlineByAi(params, config, signal),
       )
       emitState()
+      if (shouldStopAfter('outline')) return null
     }
 
     if (shouldRunStep('meeting', fromStep, retryDay) && !retryDay) {
@@ -686,6 +723,7 @@ export async function planRouteByAi(
       }
       emitState()
       onProgress?.(multiDep ? '集合点方案生成完成' : '出发方案生成完成')
+      if (shouldStopAfter('meeting')) return null
     }
 
     if (multiDep && !state.meetingPlan) {
@@ -704,13 +742,25 @@ export async function planRouteByAi(
       let daysToRun: number[]
       if (retryDay) {
         daysToRun = [retryDay]
-      } else if (!fromStep || fromStep === 'daily') {
-        const missing = Array.from({ length: params.travelDays }, (_, i) => i + 1)
-          .filter((d) => !state.dailyPlans.some((p) => p.day === d))
-        daysToRun = missing.length ? missing : Array.from({ length: params.travelDays }, (_, i) => i + 1)
       } else {
-        daysToRun = []
+        const allDays = Array.from({ length: params.travelDays }, (_, i) => i + 1)
+        const missing = allDays.filter((d) => !state.dailyPlans.some((p) => p.day === d))
+        // fromStep 在 daily 之后（如 budget/tips）时不再重跑每日；在 outline/meeting/daily 时要补齐或重生成
+        const fromIdx = fromStep ? STEP_ORDER.indexOf(fromStep) : -1
+        const dailyIdx = STEP_ORDER.indexOf('daily')
+        if (fromIdx > dailyIdx) {
+          daysToRun = []
+        } else if (fromStep === 'daily' && missing.length === 0) {
+          daysToRun = allDays
+        } else {
+          daysToRun = missing.length ? missing : allDays
+        }
       }
+
+      // 把大纲按天骨架写进每日生成上下文，避免偏离用户确认的大纲
+      const outlineDaysHint = (state.outline.dailyOutlines || [])
+        .map((d) => `第${d.day}天 ${d.from}→${d.to} ${d.distance || ''} ${d.driveTime || ''} 景点:${(d.attractions || []).join('、')} 过夜:${d.overnight}`)
+        .join('\n')
 
       for (const day of daysToRun) {
         checkAbort(signal)
@@ -722,7 +772,17 @@ export async function planRouteByAi(
           generateDailyPlanByAi(
             params,
             day,
-            { outline: state.outline!, startPlan: state.startPlan ?? undefined, meetingPlan: state.meetingPlan ?? undefined, previousDays },
+            {
+              outline: {
+                ...state.outline!,
+                routeSummary: outlineDaysHint
+                  ? `${state.outline!.routeSummary}\n【用户已确认的按天大纲】\n${outlineDaysHint}`
+                  : state.outline!.routeSummary,
+              },
+              startPlan: state.startPlan ?? undefined,
+              meetingPlan: state.meetingPlan ?? undefined,
+              previousDays,
+            },
             config,
             signal,
           ),
@@ -734,22 +794,29 @@ export async function planRouteByAi(
         emitState()
         onProgress?.(`第 ${day} 天行程生成完成`)
       }
+      if (shouldStopAfter('daily')) return null
     }
 
     if (shouldRunStep('budget', fromStep, retryDay) && !retryDay) {
       checkAbort(signal)
       onProgress?.('正在整理预算明细')
-      state.budget = await runStep('budget', undefined, () =>
+      let budget = await runStep('budget', undefined, () =>
         generateBudgetByAi(params, state.dailyPlans, config, signal),
       )
+      const tolls = estimateHighwayTollsFromDailyPlans(state.dailyPlans)
+      budget = mergeHighwayIntoBudget(budget, tolls, params)
+      state.budget = budget
       emitState()
       onProgress?.('预算明细生成完成')
+      if (shouldStopAfter('budget')) return null
     }
 
     if (!state.budget && !retryDay) {
-      state.budget = await runStep('budget', undefined, () =>
+      let budget = await runStep('budget', undefined, () =>
         generateBudgetByAi(params, state.dailyPlans, config, signal),
       )
+      budget = mergeHighwayIntoBudget(budget, estimateHighwayTollsFromDailyPlans(state.dailyPlans), params)
+      state.budget = budget
       emitState()
     }
 
@@ -761,6 +828,7 @@ export async function planRouteByAi(
       )
       emitState()
       onProgress?.('注意事项生成完成')
+      if (shouldStopAfter('tips')) return null
     }
 
     if (!state.tips && !retryDay) {
@@ -782,8 +850,13 @@ export async function planRouteByAi(
       params,
     })
     onProgress?.('图文攻略合成完成')
+    if (shouldStopAfter('compose')) return guide
 
     checkAbort(signal)
+    if (!params.fetchScenicImages) {
+      onProgress?.('已跳过景区图片抓取')
+      return guide
+    }
     return await runStep('images', undefined, () => hydrateGuideImages(guide, onProgress))
   } catch (e) {
     if (e instanceof PlanStepError) throw e
@@ -801,7 +874,8 @@ export async function regenerateBudgetOnly(
   config: AiModelConfig,
   signal?: AbortSignal,
 ): Promise<DetailedTravelGuide> {
-  const budget = await generateBudgetByAi(params, guide.dailyPlans, config, signal)
+  let budget = await generateBudgetByAi(params, guide.dailyPlans, config, signal)
+  budget = mergeHighwayIntoBudget(budget, estimateHighwayTollsFromDailyPlans(guide.dailyPlans), params)
   return {
     ...guide,
     budgetDetail: budget,

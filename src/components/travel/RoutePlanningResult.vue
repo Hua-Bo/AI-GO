@@ -19,6 +19,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'regenerate-budget'): void
+  (e: 'regenerate-daily'): void
   (e: 'update:remindBeforeMinutes', value: number): void
 }>()
 
@@ -169,6 +170,10 @@ async function handleCopyAllReminders() {
 
     <section class="daily-section guide-section">
       <h3 class="section-title">每日详细行程</h3>
+      <div v-if="!(guide.dailyPlans || []).length" class="daily-empty no-print">
+        <p>每日细行程还没生成（或上次生成被跳过）。</p>
+        <el-button type="primary" @click="$emit('regenerate-daily')">重新生成每日详细行程</el-button>
+      </div>
       <DetailedDailyPlanCard
         v-for="day in (guide.dailyPlans || [])"
         :key="day.day"
@@ -186,12 +191,19 @@ async function handleCopyAllReminders() {
 
     <section v-if="(guide.foodRecommendations || []).length" class="food-section guide-section">
       <h3 class="section-title">美食推荐</h3>
-      <el-table :data="guide.foodRecommendations" size="small" stripe>
-        <el-table-column prop="name" label="名称" />
+      <el-table :data="guide.foodRecommendations" size="small" stripe empty-text="暂无可用美食推荐">
+        <el-table-column prop="name" label="名称" min-width="140" />
+        <el-table-column prop="type" label="类型" width="80" />
         <el-table-column prop="city" label="城市" width="90" />
-        <el-table-column prop="description" label="介绍" />
-        <el-table-column prop="avgCost" label="人均" width="110" />
-        <el-table-column prop="avoidTip" label="避坑" />
+        <el-table-column prop="description" label="介绍" min-width="180">
+          <template #default="{ row }">{{ row.description || '—' }}</template>
+        </el-table-column>
+        <el-table-column prop="avgCost" label="人均" width="120">
+          <template #default="{ row }">{{ row.avgCost || '以实际为准' }}</template>
+        </el-table-column>
+        <el-table-column prop="avoidTip" label="避坑" min-width="120">
+          <template #default="{ row }">{{ row.avoidTip || '—' }}</template>
+        </el-table-column>
       </el-table>
     </section>
 
@@ -209,7 +221,7 @@ async function handleCopyAllReminders() {
     <section class="budget-section guide-section">
       <h3 class="section-title">预算明细</h3>
       <div class="budget-tools">
-        <el-button size="small" plain @click="$emit('regenerate-budget')">重新估算费用</el-button>
+        <el-button size="small" plain @click="$emit('regenerate-budget')">重新估算费用（含高速费）</el-button>
       </div>
       <DetailedBudgetPanel :budget="guide.budgetDetail" />
       <div v-if="guide.budgetReference" class="budget-reference">
@@ -265,6 +277,19 @@ async function handleCopyAllReminders() {
 .cover-tag { height: 28px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 999px; background: rgba(255,255,255,0.18); color: #fff; font-size: 12px; font-weight: 700; }
 .guide-section { margin-bottom: 18px; padding: 22px; border-radius: 28px; background: rgba(255,255,255,0.92); border: 1px solid rgba(226,232,240,0.9); box-shadow: 0 16px 42px rgba(15,23,42,0.06); }
 .overview, .route-section, .daily-section, .spots-section, .food-section, .hotel-section, .budget-section, .tips-section, .list-section, .risk-section, .suggest-section { margin-bottom: 24px; }
+.daily-empty {
+  padding: 16px;
+  border-radius: 14px;
+  background: #fff7ed;
+  border: 1px dashed #fdba74;
+  color: #9a3412;
+  margin-bottom: 12px;
+}
+.daily-empty p {
+  margin: 0 0 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
 .section-title { display: flex; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 18px; font-weight: 900; color: #172033; }
 .section-title::before { content: ""; width: 4px; height: 18px; border-radius: 999px; background: linear-gradient(180deg, #2563eb, #06b6d4); }
 .overview-grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 12px; }

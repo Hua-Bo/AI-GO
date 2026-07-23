@@ -45,6 +45,7 @@ export type PlannerStage =
   | 'input'
   | 'needApiKey'
   | 'planning'
+  | 'outline_ready'
   | 'planned'
   | 'error'
 
@@ -193,6 +194,10 @@ export interface RoutePlanningParams {
   travelDays: number
   startDate?: string
   planMode?: PlanMode
+  /** 生成时是否抓取景区图片（默认 false，可显著加快生成） */
+  fetchScenicImages?: boolean
+  /** 用户对大纲的修改意见（重新生成大纲时传入） */
+  outlineRevisionNote?: string
   weatherList?: DailyWeather[]
   remindBeforeMinutes?: number
   budgetLevel: BudgetLevel
@@ -458,10 +463,21 @@ export interface DetailedHotelSuggestion {
 }
 
 export interface BudgetItem {
-  category: 'transport' | 'hotel' | 'ticket' | 'food' | 'parking' | 'charging' | 'fuel' | 'other'
+  category: 'transport' | 'hotel' | 'ticket' | 'food' | 'parking' | 'charging' | 'fuel' | 'highway' | 'other'
   name: string
   amount: string
   description: string
+}
+
+/** 单日高速费估算（来自里程规则或高德路径规划） */
+export interface HighwayTollSegment {
+  day: number
+  from: string
+  to: string
+  distanceKm: number
+  tollYuan: number
+  source: 'amap' | 'estimate'
+  note?: string
 }
 
 export interface DetailedBudget {
@@ -470,6 +486,22 @@ export interface DetailedBudget {
   totalEstimate: string
   items: BudgetItem[]
   notes: string[]
+}
+
+/** 大纲阶段的按天骨架（供用户确认/修改后再生成细行程） */
+export interface OutlineDayPlan {
+  day: number
+  from: string
+  to: string
+  /** 如「530km」 */
+  distance?: string
+  /** 如「约6小时」 */
+  driveTime?: string
+  attractions: string[]
+  /** 过夜城市或「车宿」「酒店」说明 */
+  overnight: string
+  overnightType?: 'car' | 'hotel' | 'home' | 'camping'
+  note?: string
 }
 
 export interface GuideOutline {
@@ -484,6 +516,12 @@ export interface GuideOutline {
   travelDays: number
   routeSummary: string
   routeHighlights: string[]
+  /** 按天大纲：起止、里程、景点、住宿 */
+  dailyOutlines?: OutlineDayPlan[]
+  accommodationStrategy?: string
+  foodHighlights?: string[]
+  photoHighlights?: string[]
+  dailyArrangementNote?: string
 }
 
 export interface GuideTipsResult {

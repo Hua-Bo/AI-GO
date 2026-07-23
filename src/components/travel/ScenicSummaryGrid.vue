@@ -12,7 +12,7 @@ defineProps<{
     <h3>景区汇总</h3>
     <div class="grid">
       <div v-for="(s, i) in spots" :key="i" class="spot-card">
-        <div class="img-wrap"><ScenicImage :src="s.image" :alt="s.name" /></div>
+        <div v-if="s.image" class="img-wrap"><ScenicImage :src="s.image" :alt="s.name" /></div>
         <div class="body">
           <strong>{{ s.name }}</strong>
           <span class="city">{{ s.city }}</span>

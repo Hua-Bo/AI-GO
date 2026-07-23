@@ -12,8 +12,8 @@ const emit = defineEmits<{ toggle: []; toggleExpand: [] }>()
 </script>
 
 <template>
-  <div class="spot-card" :class="{ selected, expanded }">
-    <div class="spot-img-wrap" @click="emit('toggleExpand')">
+  <div class="spot-card" :class="{ selected, expanded, 'no-image': !spot.image }">
+    <div v-if="spot.image" class="spot-img-wrap" @click="emit('toggleExpand')">
       <ScenicImage
         :src="spot.image"
         :alt="spot.name"
@@ -27,7 +27,15 @@ const emit = defineEmits<{ toggle: []; toggleExpand: [] }>()
     </div>
     <div class="spot-body">
       <div class="spot-head">
-        <h3>{{ spot.name }}</h3>
+        <div class="spot-title-row">
+          <el-checkbox
+            v-if="!spot.image"
+            class="spot-check-inline"
+            :model-value="selected"
+            @change="emit('toggle')"
+          />
+          <h3>{{ spot.name }}</h3>
+        </div>
         <span class="city">{{ spot.cityName }}</span>
       </div>
       <div class="spot-tags">
@@ -66,7 +74,10 @@ const emit = defineEmits<{ toggle: []; toggleExpand: [] }>()
 .spot-check { position: absolute; top: 10px; left: 10px; background: rgba(255,255,255,0.92); padding: 4px 8px; border-radius: 8px; }
 .spot-rating { position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.55); color: #fff; padding: 4px 10px; border-radius: 999px; font-size: 13px; }
 .spot-body { padding: 14px 16px; }
-.spot-head { display: flex; justify-content: space-between; align-items: baseline; }
+.spot-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.spot-title-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.spot-title-row h3 { margin: 0; font-size: 16px; }
+.spot-check-inline { margin-right: 0; }
 .spot-head h3 { margin: 0; font-size: 16px; }
 .city { font-size: 12px; color: var(--travel-text-secondary); }
 .spot-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; }

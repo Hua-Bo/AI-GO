@@ -19,8 +19,8 @@ const reasonExpanded = ref(false)
 </script>
 
 <template>
-  <div class="city-card" :class="{ selected }">
-    <div class="cover-wrap">
+  <div class="city-card" :class="{ selected, 'no-cover': !city.coverImage }">
+    <div v-if="city.coverImage" class="cover-wrap">
       <ScenicImage :src="city.coverImage" :alt="city.cityName" />
       <div class="cover-overlay">
         <div class="badges">
@@ -32,6 +32,14 @@ const reasonExpanded = ref(false)
       </div>
     </div>
     <div class="body">
+      <div v-if="!city.coverImage" class="title-block">
+        <div class="badges">
+          <el-tag v-if="isDirectionMode && city.cityRole === 'destination'" size="small" type="warning">终点城市</el-tag>
+          <el-tag v-else-if="isDirectionMode && city.cityRole === 'stopover'" size="small">沿途城市</el-tag>
+        </div>
+        <h3>{{ city.cityName }}</h3>
+        <span class="province">{{ city.province }}</span>
+      </div>
       <div class="tags">
         <el-tag v-for="t in (city.tags || [])" :key="t" size="small" effect="plain">{{ t }}</el-tag>
       </div>
@@ -79,6 +87,9 @@ const reasonExpanded = ref(false)
 }
 .badges { margin-bottom: 6px; }
 .cover-overlay h3 { margin: 0; font-size: 22px; }
+.title-block { margin-bottom: 10px; }
+.title-block h3 { margin: 0 0 4px; font-size: 22px; }
+.title-block .province { font-size: 13px; color: var(--travel-text-secondary); }
 .body { padding: 16px 18px 18px; display: flex; flex-direction: column; flex: 1; }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .reason {

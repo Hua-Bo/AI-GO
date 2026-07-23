@@ -15,6 +15,8 @@ const props = defineProps<{
   province?: string
   spotType?: string
   imageKeyword?: string
+  /** 无图时是否自动联网搜图；默认 false，避免「不要图片」仍发请求 */
+  autoFetch?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -61,10 +63,11 @@ watch(() => props.imageSource, (v) => {
   localSource.value = v || ''
 })
 
-// 无图时自动检索（维基百科 / Wikimedia / Openverse）
+// 仅当显式开启 autoFetch 时，无图才自动联网检索
 watch(
-  () => [props.src, props.name, props.title, props.imageKeyword, props.city] as const,
-  async ([src, name, title, imageKeyword]) => {
+  () => [props.autoFetch, props.src, props.name, props.title, props.imageKeyword, props.city] as const,
+  async ([autoFetch, src, name, title, imageKeyword]) => {
+    if (!autoFetch) return
     if (isValidSrc(src) || loading.value || autoTried.value) return
     if (!(name || title || imageKeyword)) return
     autoTried.value = true
@@ -111,14 +114,19 @@ async function retrySearch(options?: { openOnFail?: boolean }) {
 </script>
 
 <template>
-  <div class="scenic-image" :style="height ? { height: typeof height === 'number' ? `${height}px` : height } : undefined">
+  <!-- 无图时不渲染占位，避免一堆空白框 -->
+  <div
+    v-if="loading || hasValidImage"
+    class="scenic-image"
+    :style="height ? { height: typeof height === 'number' ? `${height}px` : height } : undefined"
+  >
     <template v-if="loading">
       <div class="scenic-image-placeholder">
         <div class="placeholder-icon">⏳</div>
         <div class="placeholder-title">图片加载中...</div>
       </div>
     </template>
-    <template v-else-if="hasValidImage">
+    <template v-else>
       <img
         :src="displaySrc"
         :alt="alt || title || name || '景区图片'"
@@ -130,15 +138,6 @@ async function retrySearch(options?: { openOnFail?: boolean }) {
         <span v-if="localStatus === 'uncertain'" class="uncertain">图片仅供参考</span>
       </div>
     </template>
-    <div v-else class="scenic-image-placeholder">
-      <div class="placeholder-icon">🖼️</div>
-      <div class="placeholder-title">暂未获取到可直接展示的图片</div>
-      <div class="placeholder-desc">可点击查看网络图片或重新搜索</div>
-      <div class="placeholder-actions">
-        <button type="button" class="retry-btn" @click="retrySearch()">重新搜索图片</button>
-        <button type="button" class="search-btn" @click="openImageSearch">查看景区图片</button>
-      </div>
-    </div>
   </div>
 </template>
 

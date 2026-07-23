@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import { useTravelPlanner } from '@/composables/travel/useTravelPlanner'
 import { useResponsive } from '@/composables/useResponsive'
@@ -22,6 +23,7 @@ import PreferenceSupplementPanel from '@/components/travel/PreferenceSupplementP
 import DepartureConfigPanel from '@/components/travel/DepartureConfigPanel.vue'
 import RoutePlanningResult from '@/components/travel/RoutePlanningResult.vue'
 import PlanningWaitPanel from '@/components/travel/PlanningWaitPanel.vue'
+import OutlinePreviewPanel from '@/components/travel/OutlinePreviewPanel.vue'
 import '@/styles/travel-theme.css'
 import '@/styles/travel-mobile.css'
 import '@/components/travel/travel-form.css'
@@ -33,7 +35,7 @@ const pcPrefsCollapse = ref<string[]>([])
 
 const {
   stage, loadingStep, error, errorDetail, isPlanning, isPlanParseError,
-  canGenerate, guideReady, failedDay, rawResponse, showRawResponse,
+  canGenerate, guideReady, outlineReady, currentOutline, failedDay, rawResponse, showRawResponse,
   aiConfig, hasApiKey, configDialogVisible, saveConfig,
   travelDays, customDays, useCustomDays, departurePoints, travelThemes, budgetLevel, pace,
   withChildren, withElderly, avoidCrowded, preferNaturalScenery, preferFood, preferPhotoSpot,
@@ -42,8 +44,9 @@ const {
   preferWildSpot, preferEasyParking, maxWalkDistance, specialPlaceHint, customDailyEvents,
   accommodationMode, homeBaseAddress, maxReturnDistanceKm, maxReturnDuration, accommodationNote,
   hotelDays, hotelDayReason,
-  destinationIntent, startDate, planMode, remindBeforeMinutes, planResult, effectiveDays,
-  planRoute, stopGeneration, retryCurrentStep, retryFromStart, retryFailedDay, regenerateBudget,
+  destinationIntent, startDate, planMode, remindBeforeMinutes, fetchScenicImages, hydratingImages,
+  planningMode, weatherFetched, generationState, planResult, effectiveDays,
+  planRoute, reviseOutline, confirmOutlineAndGenerateDetail, stopGeneration, retryCurrentStep, retryFromStart, retryFailedDay, regenerateBudget, regenerateDailyDetails, hydrateImagesNow,
   addDeparture, removeDeparture, resetAll,
 } = useTravelPlanner()
 
@@ -79,7 +82,8 @@ const errorTitle = computed(() =>
 )
 
 const actionStatusTitle = computed(() => {
-  if (isPlanning.value) return '正在生成攻略'
+  if (isPlanning.value) return '正在生成'
+  if (stage.value === 'outline_ready') return '大纲已生成，请确认'
   if (stage.value === 'planned' && planResult.value) return '攻略已生成'
   if (stage.value === 'error') return '生成未完成'
   if (!hasApiKey.value) return '请先配置 API Key'
@@ -88,9 +92,10 @@ const actionStatusTitle = computed(() => {
 
 const actionStatusDesc = computed(() => {
   if (loadingStep.value) return loadingStep.value
+  if (stage.value === 'outline_ready' && currentOutline.value) return currentOutline.value.title
   if (stage.value === 'planned' && planResult.value) return planResult.value.title
   if (stage.value === 'error' && errorDetail.value) return errorDetail.value
-  if (stage.value === 'input') return '填写出发地和终点后，点击「AI 规划路线」'
+  if (stage.value === 'input') return '先生成大纲确认路线，再展开每日细行程'
   return ''
 })
 
@@ -236,18 +241,40 @@ async function handleExportImagePlain() {
 }
 
 async function handleExportAmap() {
-  if (!planResult.value) return
+  if (!planResult.value) {
+    ElMessage.warning('请先生成详细行程')
+    return
+  }
   exportingAmap.value = true
   try {
     await exportGuideToAmap(planResult.value)
+  } catch (e) {
+    console.error(e)
+    ElMessage.error(e instanceof Error ? e.message : '导出高德文件失败')
   } finally {
     exportingAmap.value = false
   }
 }
 
 async function handleOpenAmapNav() {
-  if (!planResult.value) return
+  if (!planResult.value) {
+    ElMessage.warning('请先生成详细行程')
+    return
+  }
   amapDayNavVisible.value = true
+}
+
+async function handleHydrateImages() {
+  if (!planResult.value) {
+    ElMessage.warning('请先生成详细行程')
+    return
+  }
+  try {
+    await hydrateImagesNow()
+  } catch (e) {
+    console.error(e)
+    ElMessage.error(e instanceof Error ? e.message : '补全图片失败')
+  }
 }
 
 function clamp(value: number, min: number, max: number) {
@@ -563,6 +590,7 @@ onBeforeUnmount(() => {
             </div>
             <div v-if="!isMobile" class="travel-sidebar-actions trip-action-area">
               <TravelActionBar
+                v-model:fetch-scenic-images="fetchScenicImages"
                 :status-title="actionStatusTitle"
                 :status-desc="actionStatusDesc"
                 :is-generating="isPlanning"
@@ -570,6 +598,7 @@ onBeforeUnmount(() => {
                 :model-name="aiConfig.model"
                 :can-generate="canGenerate"
                 :guide-ready="guideReady"
+                :outline-ready="outlineReady"
                 :has-parse-error="isPlanParseError"
                 :failed-day="failedDay"
                 :exporting-word="exportingWord"
@@ -578,6 +607,7 @@ onBeforeUnmount(() => {
                 :pdf-available="pdfAvailable"
                 :exporting-image-plain="exportingImagePlain"
                 :exporting-amap="exportingAmap"
+                :hydrating-images="hydratingImages"
                 @reset="resetAll()"
                 @open-config="configDialogVisible = true"
                 @plan="planRoute()"
@@ -590,8 +620,9 @@ onBeforeUnmount(() => {
                 @print-guide="handlePrintGuide()"
                 @export-image="handleExportImage()"
                 @export-image-plain="handleExportImagePlain()"
-                @export-amap="handleExportAmap()"
-                @open-amap-nav="handleOpenAmapNav()"
+                @export-amap="handleExportAmap"
+                @open-amap-nav="handleOpenAmapNav"
+                @hydrate-images="handleHydrateImages"
               />
             </div>
           </aside>
@@ -616,8 +647,9 @@ onBeforeUnmount(() => {
                     <el-dropdown-item @click="handlePrintGuide()">打印攻略</el-dropdown-item>
                     <el-dropdown-item :disabled="exportingImage" @click="handleExportImage()">保存长图</el-dropdown-item>
                     <el-dropdown-item :disabled="exportingImagePlain" @click="handleExportImagePlain()">无图长图</el-dropdown-item>
-                    <el-dropdown-item :disabled="exportingAmap" @click="handleExportAmap()">导出高德文件（看攻略内说明）</el-dropdown-item>
-                    <el-dropdown-item @click="handleOpenAmapNav()">按天高德导航</el-dropdown-item>
+                    <el-dropdown-item :disabled="exportingAmap" @click="handleExportAmap">导出高德文件（看攻略内说明）</el-dropdown-item>
+                    <el-dropdown-item @click="handleOpenAmapNav">按天高德导航</el-dropdown-item>
+                    <el-dropdown-item :disabled="hydratingImages" @click="handleHydrateImages">补全景区图片</el-dropdown-item>
                     <el-dropdown-item @click="configDialogVisible = true">模型配置</el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -647,13 +679,30 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
               </el-collapse>
             </div>
 
-            <PlanningWaitPanel :visible="isPlanning" :loading-step="loadingStep" />
+            <PlanningWaitPanel
+              :visible="isPlanning"
+              :loading-step="loadingStep"
+              :mode="planningMode"
+              :travel-days="effectiveDays"
+              :fetch-scenic-images="fetchScenicImages"
+              :weather-fetched="weatherFetched"
+              :generation-state="generationState"
+            />
+
+            <OutlinePreviewPanel
+              v-if="outlineReady && currentOutline && !isPlanning"
+              :outline="currentOutline"
+              :revising="isPlanning"
+              @confirm="confirmOutlineAndGenerateDetail()"
+              @revise="reviseOutline($event)"
+              @restart="planRoute()"
+            />
 
             <div v-if="(stage === 'input' || stage === 'needApiKey') && !isPlanning" class="empty-tip empty-guide-card empty-trip-state no-print">
               <div class="empty-trip-card">
                 <div class="icon">🧭</div>
                 <h3>准备好规划你的旅行了吗？</h3>
-                <p>{{ isMobile ? '填写上方核心信息，点底部「生成攻略」即可。' : '填写左侧信息，AI 会帮你生成一份完整图文攻略：路线规划、每日行程、景区图文、费用预算、住宿策略，并支持导出 Word / PDF / 长图。' }}</p>
+                <p>{{ isMobile ? '先生成大纲确认路线，再展开每日细行程，避免一次等太久。' : '两步生成：① 先出行程大纲（可修改）→ ② 确认后再写每日细行程。默认不抓景区图，更快；需要时再开开关或事后补图。' }}</p>
                 <div class="inspiration-routes">
                   <div class="inspiration-route-card" @click="applyPreset('wuxi')">
                     <strong>无锡周边玩水 2 日</strong>
@@ -677,6 +726,7 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
                 :guide="planResult"
                 v-model:remind-before-minutes="remindBeforeMinutes"
                 @regenerate-budget="regenerateBudget()"
+                @regenerate-daily="regenerateDailyDetails()"
               />
             </div>
               </div>
@@ -686,9 +736,11 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
 
         <MobileBottomBar
           v-if="isMobile"
+          v-model:fetch-scenic-images="fetchScenicImages"
           :is-generating="isPlanning"
           :has-api-key="hasApiKey"
           :can-generate="canGenerate"
+          :outline-ready="outlineReady"
           @reset="resetAll()"
           @plan="planRoute()"
           @stop="stopGeneration()"
@@ -725,7 +777,7 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
   min-height: 100dvh;
   overflow-x: hidden;
   overflow-y: auto;
-  padding-bottom: calc(110px + env(safe-area-inset-bottom));
+  padding-bottom: calc(150px + env(safe-area-inset-bottom));
 }
 .travel-planner-page.is-mobile .travel-shell {
   height: auto;
@@ -908,11 +960,17 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
 }
 .travel-sidebar-actions {
   flex-shrink: 0;
+  max-height: min(52vh, 520px);
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: 12px 14px 14px;
   box-sizing: border-box;
   border-top: 1px solid rgba(226, 232, 240, 0.9);
-  background: rgba(255, 255, 255, 0.96);
+  background: rgba(255, 255, 255, 0.98);
   box-shadow: 0 -10px 28px rgba(15, 23, 42, 0.06);
+  position: relative;
+  z-index: 5;
+  -webkit-overflow-scrolling: touch;
 }
 .travel-guide-main {
   min-width: 0;
@@ -1102,7 +1160,7 @@ Request Mode: {{ aiConfig.requestMode || 'direct' }}
   min-height: 100dvh;
   overflow-x: hidden;
   overflow-y: visible;
-  padding-bottom: calc(110px + env(safe-area-inset-bottom)) !important;
+  padding-bottom: calc(150px + env(safe-area-inset-bottom)) !important;
 }
 .travel-planner-page.is-mobile .travel-shell,
 .travel-planner-page.is-mobile .travel-app-shell,

@@ -6,7 +6,7 @@ defineProps<{ budget: DetailedBudget }>()
 
 const catLabel: Record<string, string> = {
   transport: '交通', hotel: '住宿', ticket: '门票', food: '餐饮',
-  parking: '停车', charging: '充电', fuel: '油费', other: '其他',
+  parking: '停车', charging: '充电', fuel: '油费', highway: '高速费', other: '其他',
 }
 </script>
 

@@ -74,7 +74,7 @@ defineProps<{
       <h3>推荐景区</h3>
       <div class="spot-thumbs">
         <div v-for="s in guide.selectedSpots" :key="s.id" class="thumb">
-          <div class="thumb-img"><ScenicImage :src="s.image" :alt="s.name" /></div>
+          <div v-if="s.image" class="thumb-img"><ScenicImage :src="s.image" :alt="s.name" /></div>
           <div><strong>{{ s.name }}</strong><span>{{ s.ticketPrice }}</span></div>
         </div>
       </div>

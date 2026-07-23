@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
-import { PlanStepError, planRouteByAi, regenerateBudgetOnly } from '@/services/travelAiApi'
+import { ElMessage } from 'element-plus'
+import { PlanStepError, hydrateGuideImages, planRouteByAi, regenerateBudgetOnly } from '@/services/travelAiApi'
 import { getTravelWeather } from '@/api/travelWeather'
 import { defaultTravelStartDate } from '@/services/travelWeatherCore'
 import { AiRequestError } from '@/services/travelAiChat'
@@ -10,6 +11,7 @@ import type {
   DeparturePoint,
   DestinationIntent,
   DetailedTravelGuide,
+  GuideOutline,
   PlanGenerationState,
   PlanMode,
   PlanStep,
@@ -99,6 +101,13 @@ export function useTravelPlanner() {
   const startDate = ref(defaultTravelStartDate())
   const planMode = ref<PlanMode>('simple')
   const remindBeforeMinutes = ref(15)
+  /** 默认关闭图片抓取，加快生成；需要时再开或事后补图 */
+  const fetchScenicImages = ref(false)
+  const outlineRevisionNote = ref('')
+  const hydratingImages = ref(false)
+  /** 当前正在跑的生成阶段，用于加载面板展示真实步骤 */
+  const planningMode = ref<'idle' | 'outline' | 'detail' | 'budget' | 'images'>('idle')
+  const weatherFetched = ref(false)
 
   const effectiveDays = computed(() => (useCustomDays.value ? customDays.value : travelDays.value))
   const peopleTotal = computed(() =>
@@ -107,6 +116,8 @@ export function useTravelPlanner() {
   const isPlanning = computed(() => stage.value === 'planning')
   const isPlanParseError = computed(() => !!failedStep.value)
   const guideReady = computed(() => !!planResult.value)
+  const outlineReady = computed(() => stage.value === 'outline_ready' && !!generationState.value.outline)
+  const currentOutline = computed<GuideOutline | null>(() => generationState.value.outline)
   const canGenerate = computed(() => {
     if (isPlanning.value || !hasApiKey.value) return false
     return !validateDepartures() && !validateDestination()
@@ -130,13 +141,15 @@ export function useTravelPlanner() {
     return null
   }
 
-  function buildPlanParams() {
+  function buildPlanParams(extra?: { outlineRevisionNote?: string }) {
     return {
       departurePoints: departurePoints.value,
       destinationIntent: destinationIntent.value,
       travelDays: effectiveDays.value,
       startDate: startDate.value,
       planMode: planMode.value,
+      fetchScenicImages: fetchScenicImages.value,
+      outlineRevisionNote: extra?.outlineRevisionNote ?? outlineRevisionNote.value,
       remindBeforeMinutes: remindBeforeMinutes.value,
       budgetLevel: budgetLevel.value,
       pace: pace.value,
@@ -186,9 +199,183 @@ export function useTravelPlanner() {
   function stopGeneration() {
     abortController.value?.abort()
     loadingStep.value = ''
-    stage.value = generationState.value.outline ? 'error' : 'input'
-    error.value = '已停止生成'
+    if (generationState.value.outline && !planResult.value) {
+      stage.value = 'outline_ready'
+      error.value = '已停止，可继续确认大纲或重新生成'
+    } else {
+      stage.value = generationState.value.outline ? 'error' : 'input'
+      error.value = '已停止生成'
+    }
     errorDetail.value = ''
+  }
+
+  function handlePlanError(e: unknown) {
+    if (e instanceof Error && e.message === '已停止生成') {
+      error.value = '已停止生成'
+      stage.value = generationState.value.outline && !planResult.value ? 'outline_ready' : (generationState.value.outline ? 'error' : 'input')
+      return
+    }
+    if (e instanceof PlanStepError) {
+      failedStep.value = e.step
+      failedDay.value = e.day ?? null
+      rawResponse.value = e.rawResponse || ''
+      error.value = 'AI 返回格式错误，已停止生成。'
+      errorDetail.value = e.message
+    } else if (e instanceof AiRequestError) {
+      rawResponse.value = typeof e.raw === 'string' ? e.raw : ''
+      error.value = e.type === 'missing_key'
+        ? '请先点击「AI 配置」填写你自己的 API Key。'
+        : e.type === 'cors' || e.type === 'network'
+          ? e.message
+          : e.type === 'auth'
+            ? 'API Key 无效或没有权限，请检查你填写的 Key。'
+            : e.message
+      errorDetail.value = e.message
+    } else {
+      error.value = e instanceof Error ? e.message : '路线规划失败'
+      errorDetail.value = ''
+    }
+    stage.value = generationState.value.outline && !planResult.value && failedStep.value === 'outline'
+      ? 'error'
+      : 'error'
+  }
+
+  async function fetchWeatherList(): Promise<DailyWeather[]> {
+    try {
+      return await getTravelWeather({
+        city: destinationIntent.value.destinationText,
+        startDate: startDate.value,
+        days: effectiveDays.value,
+      })
+    } catch {
+      return []
+    }
+  }
+
+  /** 第一步：只生成大纲 */
+  async function planOutline(options?: { revisionNote?: string; keepOutlineFeedback?: boolean }) {
+    const validationError = validateDepartures() || validateDestination()
+    if (validationError) {
+      error.value = validationError
+      errorDetail.value = ''
+      stage.value = 'error'
+      return
+    }
+    if (!ensureApiKey()) return
+
+    generationState.value = emptyGenerationState()
+    planResult.value = null
+    failedStep.value = null
+    failedDay.value = null
+    rawResponse.value = ''
+    if (!options?.keepOutlineFeedback) outlineRevisionNote.value = options?.revisionNote || ''
+
+    error.value = ''
+    errorDetail.value = ''
+    showRawResponse.value = false
+    stage.value = 'planning'
+    lastFailedAction.value = 'plan'
+
+    abortController.value?.abort()
+    const controller = new AbortController()
+    abortController.value = controller
+
+    try {
+      loadingStep.value = '正在获取每日天气'
+      weatherFetched.value = false
+      planningMode.value = 'outline'
+      const weatherList = await fetchWeatherList()
+      weatherFetched.value = true
+      const note = options?.revisionNote ?? outlineRevisionNote.value
+      await planRouteByAi(
+        { ...buildPlanParams({ outlineRevisionNote: note }), weatherList },
+        aiConfig.value,
+        {
+          onProgress: (s) => { loadingStep.value = s },
+          onStateUpdate: (s) => { generationState.value = s },
+          signal: controller.signal,
+          stopAfterStep: 'outline',
+        },
+      )
+      if (!generationState.value.outline) throw new Error('大纲生成失败')
+      outlineRevisionNote.value = ''
+      stage.value = 'outline_ready'
+      lastFailedAction.value = null
+      failedStep.value = null
+      failedDay.value = null
+    } catch (e) {
+      handlePlanError(e)
+    } finally {
+      loadingStep.value = ''
+      planningMode.value = 'idle'
+      abortController.value = null
+    }
+  }
+
+  /** 第二步：基于已确认大纲生成细行程 */
+  async function confirmOutlineAndGenerateDetail() {
+    if (!generationState.value.outline) {
+      error.value = '请先生成行程大纲'
+      stage.value = 'error'
+      return
+    }
+    if (!ensureApiKey()) return
+
+    error.value = ''
+    errorDetail.value = ''
+    stage.value = 'planning'
+    lastFailedAction.value = 'plan'
+    planResult.value = null
+    // 保留大纲，清空后续步骤缓存
+    generationState.value = {
+      ...generationState.value,
+      startPlan: null,
+      meetingPlan: null,
+      dailyPlans: [],
+      budget: null,
+      tips: null,
+    }
+
+    abortController.value?.abort()
+    const controller = new AbortController()
+    abortController.value = controller
+
+    try {
+      loadingStep.value = '正在获取每日天气'
+      weatherFetched.value = false
+      planningMode.value = 'detail'
+      const weatherList = await fetchWeatherList()
+      weatherFetched.value = true
+      const guide = await planRouteByAi(
+        { ...buildPlanParams({ outlineRevisionNote: '' }), weatherList },
+        aiConfig.value,
+        {
+          onProgress: (s) => { loadingStep.value = s },
+          onStateUpdate: (s) => { generationState.value = s },
+          signal: controller.signal,
+          existing: generationState.value,
+          fromStep: 'meeting',
+        },
+      )
+      if (!guide) throw new Error('详细行程生成失败')
+      planResult.value = guide
+      stage.value = 'planned'
+      lastFailedAction.value = null
+      failedStep.value = null
+      failedDay.value = null
+      rawResponse.value = ''
+    } catch (e) {
+      handlePlanError(e)
+    } finally {
+      loadingStep.value = ''
+      planningMode.value = 'idle'
+      abortController.value = null
+    }
+  }
+
+  async function reviseOutline(note: string) {
+    outlineRevisionNote.value = note
+    await planOutline({ revisionNote: note, keepOutlineFeedback: true })
   }
 
   async function runPlan(options?: {
@@ -204,6 +391,12 @@ export function useTravelPlanner() {
       return
     }
     if (!ensureApiKey()) return
+
+    // 默认入口改为两步：先大纲
+    if (options?.fromStart && !options.retryStep && !options.retryDay) {
+      await planOutline()
+      return
+    }
 
     if (options?.fromStart) {
       generationState.value = emptyGenerationState()
@@ -228,19 +421,12 @@ export function useTravelPlanner() {
 
     try {
       loadingStep.value = '正在获取每日天气'
-      let weatherList: DailyWeather[] = []
-      try {
-        weatherList = await getTravelWeather({
-          city: destinationIntent.value.destinationText,
-          startDate: startDate.value,
-          days: effectiveDays.value,
-        })
-      } catch {
-        // 天气获取失败时跳过，不影响后续 AI 路线规划
-        weatherList = []
-      }
+      weatherFetched.value = false
+      planningMode.value = failedStep.value === 'outline' ? 'outline' : 'detail'
+      const weatherList = await fetchWeatherList()
+      weatherFetched.value = true
 
-      planResult.value = await planRouteByAi(
+      const guide = await planRouteByAi(
         { ...buildPlanParams(), weatherList },
         aiConfig.value,
         {
@@ -252,54 +438,42 @@ export function useTravelPlanner() {
           retryDay,
         },
       )
+      if (!guide) {
+        if (generationState.value.outline) {
+          stage.value = 'outline_ready'
+          return
+        }
+        throw new Error('生成失败')
+      }
+      planResult.value = guide
       stage.value = 'planned'
       lastFailedAction.value = null
       failedStep.value = null
       failedDay.value = null
       rawResponse.value = ''
     } catch (e) {
-      if (e instanceof Error && e.message === '已停止生成') {
-        error.value = '已停止生成'
-        stage.value = generationState.value.outline ? 'error' : 'input'
-        return
-      }
-      if (e instanceof PlanStepError) {
-        failedStep.value = e.step
-        failedDay.value = e.day ?? null
-        rawResponse.value = e.rawResponse || ''
-        error.value = 'AI 返回格式错误，已停止生成。'
-        errorDetail.value = e.message
-      } else if (e instanceof AiRequestError) {
-        rawResponse.value = typeof e.raw === 'string' ? e.raw : ''
-        error.value = e.type === 'missing_key'
-          ? '请先点击「AI 配置」填写你自己的 API Key。'
-          : e.type === 'cors' || e.type === 'network'
-            ? e.message
-            : e.type === 'auth'
-              ? 'API Key 无效或没有权限，请检查你填写的 Key。'
-              : e.message
-        errorDetail.value = e.message
-      } else {
-        error.value = e instanceof Error ? e.message : '路线规划失败'
-        errorDetail.value = ''
-      }
-      stage.value = 'error'
+      handlePlanError(e)
     } finally {
       loadingStep.value = ''
+      planningMode.value = 'idle'
       abortController.value = null
     }
   }
 
   async function planRoute() {
-    await runPlan({ fromStart: true })
+    await planOutline()
   }
 
   async function retryCurrentStep() {
+    if (failedStep.value === 'outline' || stage.value === 'outline_ready') {
+      await planOutline({ revisionNote: outlineRevisionNote.value })
+      return
+    }
     await runPlan({ retryStep: true })
   }
 
   async function retryFromStart() {
-    await runPlan({ fromStart: true })
+    await planOutline()
   }
 
   async function retryFailedDay(day: number) {
@@ -313,6 +487,88 @@ export function useTravelPlanner() {
     else await planRoute()
   }
 
+  async function regenerateDailyDetails() {
+    if (!generationState.value.outline && !planResult.value) {
+      ElMessage.warning('请先生成并确认行程大纲')
+      return
+    }
+    if (!ensureApiKey()) return
+
+    // 用已有攻略/大纲回填 generationState，从 daily 步重跑
+    if (planResult.value) {
+      generationState.value = {
+        outline: generationState.value.outline || {
+          title: planResult.value.title,
+          subtitle: planResult.value.subtitle,
+          summary: planResult.value.summary,
+          destination: planResult.value.basicInfo.destination,
+          routeName: planResult.value.routeOverview.routeName,
+          routeType: planResult.value.routeOverview.routeType,
+          coreCities: planResult.value.routeOverview.coreCities || [],
+          totalPeople: planResult.value.basicInfo.totalPeople,
+          travelDays: planResult.value.basicInfo.travelDays,
+          routeSummary: planResult.value.routeOverview.routeSummary || planResult.value.summary,
+          routeHighlights: planResult.value.routeOverview.routeHighlights || [],
+        },
+        startPlan: planResult.value.startPlan || generationState.value.startPlan,
+        meetingPlan: planResult.value.meetingPlan || generationState.value.meetingPlan,
+        dailyPlans: [],
+        budget: null,
+        tips: null,
+      }
+    } else {
+      generationState.value = {
+        ...generationState.value,
+        dailyPlans: [],
+        budget: null,
+        tips: null,
+      }
+    }
+
+    error.value = ''
+    errorDetail.value = ''
+    stage.value = 'planning'
+    planningMode.value = 'detail'
+    lastFailedAction.value = 'plan'
+    failedStep.value = 'daily'
+    failedDay.value = null
+
+    abortController.value?.abort()
+    const controller = new AbortController()
+    abortController.value = controller
+
+    try {
+      loadingStep.value = '正在获取每日天气'
+      weatherFetched.value = false
+      const weatherList = await fetchWeatherList()
+      weatherFetched.value = true
+      const guide = await planRouteByAi(
+        { ...buildPlanParams({ outlineRevisionNote: '' }), weatherList },
+        aiConfig.value,
+        {
+          onProgress: (s) => { loadingStep.value = s },
+          onStateUpdate: (s) => { generationState.value = s },
+          signal: controller.signal,
+          existing: generationState.value,
+          fromStep: 'daily',
+        },
+      )
+      if (!guide) throw new Error('每日细行程生成失败')
+      planResult.value = guide
+      stage.value = 'planned'
+      lastFailedAction.value = null
+      failedStep.value = null
+      failedDay.value = null
+      ElMessage.success('每日详细行程已生成')
+    } catch (e) {
+      handlePlanError(e)
+    } finally {
+      loadingStep.value = ''
+      planningMode.value = 'idle'
+      abortController.value = null
+    }
+  }
+
   async function regenerateBudget() {
     if (!planResult.value) return
     if (!ensureApiKey()) return
@@ -320,7 +576,8 @@ export function useTravelPlanner() {
     const controller = new AbortController()
     abortController.value = controller
     stage.value = 'planning'
-    loadingStep.value = '正在重新估算费用'
+    planningMode.value = 'budget'
+    loadingStep.value = '正在重新估算费用（含高速费）'
     try {
       planResult.value = await regenerateBudgetOnly(buildPlanParams(), planResult.value, aiConfig.value, controller.signal)
       stage.value = 'planned'
@@ -329,7 +586,39 @@ export function useTravelPlanner() {
       stage.value = 'error'
     } finally {
       loadingStep.value = ''
+      planningMode.value = 'idle'
       abortController.value = null
+    }
+  }
+
+  async function hydrateImagesNow() {
+    if (!planResult.value || hydratingImages.value) return
+    const spotCount = [
+      ...(planResult.value.scenicSpotSummary || []),
+      ...(planResult.value.dailyPlans || []).flatMap((d) => d.scenicSpots || []),
+      ...(planResult.value.selectedScenicSpots || []),
+    ].filter((s) => s?.name).length
+    if (!spotCount) {
+      ElMessage.warning('当前攻略几乎没有景区点，无法补全图片。请确认已生成每日细行程。')
+      return
+    }
+
+    hydratingImages.value = true
+    planningMode.value = 'images'
+    stage.value = 'planning'
+    loadingStep.value = `正在补全景区图片 0/${spotCount}`
+    try {
+      planResult.value = await hydrateGuideImages(planResult.value, (s) => { loadingStep.value = s })
+      stage.value = 'planned'
+      ElMessage.success('景区图片已补全（无可靠来源的会显示占位）')
+    } catch (e) {
+      error.value = e instanceof Error ? e.message : '图片抓取失败'
+      stage.value = 'error'
+      ElMessage.error(error.value)
+    } finally {
+      hydratingImages.value = false
+      planningMode.value = 'idle'
+      loadingStep.value = ''
     }
   }
 
@@ -388,6 +677,10 @@ export function useTravelPlanner() {
     startDate.value = defaultTravelStartDate()
     planMode.value = 'simple'
     remindBeforeMinutes.value = 15
+    fetchScenicImages.value = false
+    outlineRevisionNote.value = ''
+    planningMode.value = 'idle'
+    weatherFetched.value = false
     planResult.value = null
     generationState.value = emptyGenerationState()
     error.value = ''
@@ -412,6 +705,8 @@ export function useTravelPlanner() {
     isPlanParseError,
     canGenerate,
     guideReady,
+    outlineReady,
+    currentOutline,
     failedStep,
     failedDay,
     rawResponse,
@@ -462,8 +757,16 @@ export function useTravelPlanner() {
     startDate,
     planMode,
     remindBeforeMinutes,
+    fetchScenicImages,
+    hydratingImages,
+    planningMode,
+    weatherFetched,
+    generationState,
     planResult,
     planRoute,
+    planOutline,
+    reviseOutline,
+    confirmOutlineAndGenerateDetail,
     stopGeneration,
     retryCurrentStep,
     retryFromStart,
@@ -473,5 +776,7 @@ export function useTravelPlanner() {
     resetAll,
     retryLastRequest,
     regenerateBudget,
+    regenerateDailyDetails,
+    hydrateImagesNow,
   }
 }

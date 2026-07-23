@@ -19,6 +19,7 @@ import type {
   DetailedTravelGuide,
   GuideOutline,
   GuideTipsResult,
+  OutlineDayPlan,
   RecommendedCity,
   RoutePlanningParams,
   ScenicSpot,
@@ -132,7 +133,7 @@ const DEST_TYPES = new Set(['city', 'region', 'scenic', 'direction'])
 const ROUTE_TYPES = new Set(['direct', 'loop', 'oneWay', 'multiCity'])
 const TIMELINE_TYPES = new Set(['meeting', 'transport', 'scenic', 'food', 'hotel', 'rest', 'free'])
 const MEAL_TYPES = new Set(['breakfast', 'lunch', 'dinner', 'snack'])
-const BUDGET_CATS = new Set(['transport', 'hotel', 'ticket', 'food', 'parking', 'charging', 'fuel', 'other'])
+const BUDGET_CATS = new Set(['transport', 'hotel', 'ticket', 'food', 'parking', 'charging', 'fuel', 'highway', 'other'])
 const SPOT_TYPES = new Set<SpotType>(['scenic', 'park', 'museum', 'oldStreet', 'beach', 'mountain', 'lake', 'camping', 'cityWalk', 'foodArea', 'other'])
 
 export function normalizeScenicSpot(raw: unknown, index: number, city?: Partial<RecommendedCity>): ScenicSpot {
@@ -464,16 +465,83 @@ export function normalizeDetailedTimelineItem(raw: unknown, index: number): Deta
 }
 
 function normalizeDailyMeal(raw: unknown, index: number): DailyMealPlan {
-  const item = raw as Partial<DailyMealPlan> & { meal?: string }
-  const mealType = item.mealType && MEAL_TYPES.has(item.mealType) ? item.mealType : 'lunch'
+  const item = (raw && typeof raw === 'object' ? raw : {}) as Partial<DailyMealPlan> & Record<string, unknown>
+  const mealTypeRaw = String(item.mealType || item.type || '')
+  const mealType = MEAL_TYPES.has(mealTypeRaw as DailyMealPlan['mealType'])
+    ? mealTypeRaw as DailyMealPlan['mealType']
+    : (index === 0 ? 'lunch' : 'dinner')
+  const recommendation = String(
+    item.recommendation
+    || item.name
+    || item.meal
+    || item.dish
+    || item.food
+    || item.restaurant
+    || item.title
+    || '',
+  ).trim()
   return {
     mealType,
-    city: String(item.city || ''),
-    recommendation: String(item.recommendation || item.meal || ''),
-    reason: String(item.reason || ''),
-    estimatedCost: String(item.estimatedCost || ''),
-    nearbyArea: item.nearbyArea ? String(item.nearbyArea) : undefined,
+    city: String(item.city || item.area || ''),
+    recommendation,
+    reason: String(item.reason || item.description || item.desc || item.tip || ''),
+    estimatedCost: String(item.estimatedCost || item.cost || item.price || item.avgCost || ''),
+    nearbyArea: item.nearbyArea || item.area ? String(item.nearbyArea || item.area) : undefined,
   }
+}
+
+function isUsefulFoodName(name: string): boolean {
+  const t = name.trim()
+  if (t.length < 2) return false
+  if (/^(当地美食|附近美食|特色美食|美食|餐饮|午餐|晚餐|早餐|小吃|视情况|自由安排|待定)$/.test(t)) return false
+  if (/^(进入|前往|到达|出发|继续|然后)/.test(t) && t.length > 12) return false
+  return true
+}
+
+function extractFoodFromDailyPlans(dailyPlans: DetailedDailyPlan[]): DetailedFoodRecommendation[] {
+  const seen = new Set<string>()
+  const result: DetailedFoodRecommendation[] = []
+  const mealLabel: Record<string, string> = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '小吃' }
+
+  const push = (item: DetailedFoodRecommendation) => {
+    const name = item.name.trim()
+    if (!isUsefulFoodName(name)) return
+    const key = `${item.city}-${name}`
+    if (seen.has(key)) return
+    seen.add(key)
+    result.push({
+      ...item,
+      name,
+      city: item.city || '—',
+      description: item.description || '当地特色，以实际口味为准',
+      avgCost: item.avgCost || '以实际为准',
+    })
+  }
+
+  for (const day of dailyPlans) {
+    for (const meal of day.meals || []) {
+      push({
+        name: meal.recommendation,
+        city: meal.city || day.endCity || day.startCity || '',
+        type: mealLabel[meal.mealType] || '餐饮',
+        description: meal.reason,
+        avgCost: meal.estimatedCost,
+        area: meal.nearbyArea,
+      })
+    }
+    for (const item of day.timeline || []) {
+      if (item.type !== 'food') continue
+      push({
+        name: item.title || item.location || '',
+        city: item.city || day.endCity || day.startCity || '',
+        type: '餐饮',
+        description: item.description || (item.tips || []).join('；'),
+        avgCost: item.cost || '',
+        area: item.location,
+      })
+    }
+  }
+  return result
 }
 
 function normalizeDailyHotel(raw: unknown): DailyHotelSuggestion {
@@ -715,10 +783,33 @@ export function normalizeDailyPlan(raw: unknown, day: number): DetailedDailyPlan
 }
 
 export function normalizeGuideOutline(raw: unknown, params: RoutePlanningParams): GuideOutline {
-  const item = raw as Partial<GuideOutline>
+  const item = raw as Partial<GuideOutline> & Record<string, unknown>
   const routeType = item.routeType && ROUTE_TYPES.has(item.routeType)
     ? item.routeType : 'multiCity'
   const people = params.departurePoints.reduce((s, d) => s + d.peopleCount, 0)
+  const dailyRaw = Array.isArray(item.dailyOutlines)
+    ? item.dailyOutlines
+    : Array.isArray(item.dailyPlans)
+      ? item.dailyPlans
+      : []
+  const dailyOutlines = dailyRaw.map((d, i) => {
+    const day = (d && typeof d === 'object' ? d : {}) as Record<string, unknown>
+    const overnightTypeRaw = String(day.overnightType || '')
+    const overnightType = (['car', 'hotel', 'home', 'camping'] as const).includes(overnightTypeRaw as 'car')
+      ? overnightTypeRaw as OutlineDayPlan['overnightType']
+      : undefined
+    return {
+      day: typeof day.day === 'number' ? day.day : i + 1,
+      from: String(day.from || day.startCity || ''),
+      to: String(day.to || day.endCity || ''),
+      distance: day.distance ? String(day.distance) : undefined,
+      driveTime: day.driveTime || day.duration ? String(day.driveTime || day.duration) : undefined,
+      attractions: normalizeStringArray(day.attractions ?? day.scenicSpots ?? day.highlights),
+      overnight: String(day.overnight || day.overnightCity || day.stay || ''),
+      overnightType,
+      note: day.note ? String(day.note) : undefined,
+    }
+  })
   return {
     title: String(item.title || `${params.destinationIntent.destinationText} ${params.travelDays}日攻略`),
     subtitle: String(item.subtitle || ''),
@@ -731,6 +822,15 @@ export function normalizeGuideOutline(raw: unknown, params: RoutePlanningParams)
     travelDays: typeof item.travelDays === 'number' ? item.travelDays : params.travelDays,
     routeSummary: String(item.routeSummary || ''),
     routeHighlights: normalizeStringArray(item.routeHighlights),
+    dailyOutlines: dailyOutlines.length ? dailyOutlines : undefined,
+    accommodationStrategy: item.accommodationStrategy ? String(item.accommodationStrategy) : undefined,
+    foodHighlights: normalizeStringArray(item.foodHighlights).length
+      ? normalizeStringArray(item.foodHighlights)
+      : undefined,
+    photoHighlights: normalizeStringArray(item.photoHighlights).length
+      ? normalizeStringArray(item.photoHighlights)
+      : undefined,
+    dailyArrangementNote: item.dailyArrangementNote ? String(item.dailyArrangementNote) : undefined,
   }
 }
 
@@ -742,29 +842,6 @@ export function normalizeGuideTips(raw: unknown): GuideTipsResult {
     packingList: normalizeStringArray(item.packingList),
     finalSuggestions: normalizeStringArray(item.finalSuggestions),
   }
-}
-
-function extractFoodFromDailyPlans(dailyPlans: DetailedDailyPlan[]): DetailedFoodRecommendation[] {
-  const seen = new Set<string>()
-  const result: DetailedFoodRecommendation[] = []
-  const mealLabel: Record<string, string> = { breakfast: '早餐', lunch: '午餐', dinner: '晚餐', snack: '小吃' }
-  for (const day of dailyPlans) {
-    for (const meal of day.meals) {
-      if (!meal.recommendation) continue
-      const key = `${meal.city}-${meal.recommendation}`
-      if (seen.has(key)) continue
-      seen.add(key)
-      result.push({
-        name: meal.recommendation,
-        city: meal.city,
-        type: mealLabel[meal.mealType] || '餐饮',
-        description: meal.reason,
-        avgCost: meal.estimatedCost,
-        area: meal.nearbyArea,
-      })
-    }
-  }
-  return result
 }
 
 function extractHotelsFromDailyPlans(dailyPlans: DetailedDailyPlan[]): DetailedHotelSuggestion[] {
@@ -884,7 +961,20 @@ export function composeDetailedGuide(parts: {
     dailyPlans: normalizedDays,
     scenicSpotSummary: scenicSummary,
     selectedScenicSpots: scenicSummary,
-    foodRecommendations: extractFoodFromDailyPlans(normalizedDays),
+    foodRecommendations: (() => {
+      const fromDays = extractFoodFromDailyPlans(normalizedDays)
+      if (fromDays.length) return fromDays
+      // 细行程 meals 为空时，用大纲美食亮点兜底，避免美食区空白
+      return (outline.foodHighlights || [])
+        .filter(isUsefulFoodName)
+        .map((name) => ({
+          name,
+          city: outline.coreCities?.[0] || outline.destination || '—',
+          type: '特色',
+          description: '来自行程大纲亮点，细行程 meals 未返回时的兜底推荐',
+          avgCost: '以实际为准',
+        }))
+    })(),
     hotelSuggestions: extractHotelsFromDailyPlans(normalizedDays),
     budgetDetail: {
       ...budget,

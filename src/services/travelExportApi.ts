@@ -105,19 +105,60 @@ function prepareBrokenImages(container: HTMLElement): () => void {
   }
 }
 
-async function captureGuideCanvas(options?: { skipExternalImages?: boolean }) {
-  const el = document.getElementById('travel-route-report')
-  if (!el) throw new Error('请先生成攻略')
+async function waitForImages(container: HTMLElement, timeoutMs = 4000) {
+  const imgs = Array.from(container.querySelectorAll('img'))
+  await Promise.race([
+    Promise.all(imgs.map((img) => {
+      if (img.complete) return Promise.resolve()
+      return new Promise<void>((resolve) => {
+        img.addEventListener('load', () => resolve(), { once: true })
+        img.addEventListener('error', () => resolve(), { once: true })
+      })
+    })),
+    new Promise<void>((resolve) => setTimeout(resolve, timeoutMs)),
+  ])
+}
 
+function isBlankCanvas(canvas: HTMLCanvasElement): boolean {
+  try {
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return true
+    const sampleH = Math.min(48, canvas.height)
+    if (sampleH <= 0 || canvas.width <= 0) return true
+    const data = ctx.getImageData(0, 0, canvas.width, sampleH).data
+    let nonWhite = 0
+    for (let i = 0; i < data.length; i += 16) {
+      const r = data[i]
+      const g = data[i + 1]
+      const b = data[i + 2]
+      const a = data[i + 3]
+      if (a > 8 && (r < 250 || g < 250 || b < 250)) nonWhite += 1
+      if (nonWhite > 20) return false
+    }
+    return true
+  } catch {
+    return false
+  }
+}
+
+const MAX_CANVAS_EDGE = 14000
+
+async function captureElement(
+  el: HTMLElement,
+  options?: { skipExternalImages?: boolean; scale?: number },
+): Promise<HTMLCanvasElement> {
   await nextTick()
+  await waitForImages(el)
   const restoreExternal = options?.skipExternalImages ? hideExternalImages(el) : null
   const restoreBroken = prepareBrokenImages(el)
-
   try {
+    const height = el.scrollHeight || el.clientHeight
+    const scale = options?.scale
+      ?? (height > 9000 ? 1 : height > 5000 ? 1.25 : 2)
     const html2canvas = (await import('html2canvas')).default
     return await html2canvas(el, {
       backgroundColor: '#ffffff',
-      scale: 2,
+      scale,
       useCORS: true,
       allowTaint: false,
       logging: false,
@@ -130,6 +171,105 @@ async function captureGuideCanvas(options?: { skipExternalImages?: boolean }) {
     restoreExternal?.()
     restoreBroken()
   }
+}
+
+async function captureGuideCanvas(options?: { skipExternalImages?: boolean }) {
+  const el = document.getElementById('travel-route-report')
+  if (!el) throw new Error('请先生成攻略')
+  return captureElement(el, options)
+}
+
+/** 按区块分段截屏，避免长行程单 canvas 超限导致 PDF 后半白页 */
+async function captureGuideSections(options?: { skipExternalImages?: boolean }): Promise<HTMLCanvasElement[]> {
+  const root = document.getElementById('travel-route-report')
+  if (!root) throw new Error('请先生成攻略')
+
+  const sections = Array.from(root.querySelectorAll<HTMLElement>('.guide-section'))
+  const targets = sections.length ? sections : [root]
+  const canvases: HTMLCanvasElement[] = []
+
+  for (const section of targets) {
+    // 跳过打印隐藏区
+    if (section.classList.contains('no-print')) continue
+    const h = section.scrollHeight
+    if (h < 8) continue
+
+    // 超高区块再按子块切
+    const children = h > MAX_CANVAS_EDGE / 2
+      ? Array.from(section.children).filter((n): n is HTMLElement => n instanceof HTMLElement)
+      : [section]
+
+    for (const piece of children.length ? children : [section]) {
+      if ((piece.scrollHeight || 0) < 8) continue
+      try {
+        const canvas = await captureElement(piece, {
+          ...options,
+          scale: piece.scrollHeight > 6000 ? 1 : undefined,
+        })
+        if (!isBlankCanvas(canvas)) canvases.push(canvas)
+      } catch {
+        // 单块失败不中断
+      }
+    }
+  }
+
+  if (!canvases.length) {
+    const fallback = await captureGuideCanvas(options)
+    return [fallback]
+  }
+  return canvases
+}
+
+function appendCanvasToPdf(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  pdf: any,
+  canvas: HTMLCanvasElement,
+  startPageIndex: number,
+): number {
+  const pageWidth = pdf.internal.pageSize.getWidth()
+  const pageHeight = pdf.internal.pageSize.getHeight()
+  const margin = 8
+  const usableWidth = pageWidth - margin * 2
+  const usableHeight = pageHeight - margin * 2
+
+  const imgWidth = usableWidth
+  const imgHeight = (canvas.height * imgWidth) / canvas.width
+  const pageCanvasHeight = Math.max(1, Math.floor((usableHeight / imgHeight) * canvas.height))
+
+  let renderedHeight = 0
+  let pageIndex = startPageIndex
+  while (renderedHeight < canvas.height) {
+    const sliceHeight = Math.min(pageCanvasHeight, canvas.height - renderedHeight)
+    const pageCanvas = document.createElement('canvas')
+    pageCanvas.width = canvas.width
+    pageCanvas.height = sliceHeight
+    const ctx = pageCanvas.getContext('2d')
+    if (!ctx) throw new Error('无法创建画布')
+    ctx.fillStyle = '#ffffff'
+    ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height)
+    ctx.drawImage(
+      canvas,
+      0,
+      renderedHeight,
+      canvas.width,
+      sliceHeight,
+      0,
+      0,
+      canvas.width,
+      sliceHeight,
+    )
+    if (isBlankCanvas(pageCanvas)) {
+      renderedHeight += sliceHeight
+      continue
+    }
+    const pageData = pageCanvas.toDataURL('image/jpeg', 0.9)
+    const sliceImgHeight = (sliceHeight * imgWidth) / canvas.width
+    if (pageIndex > 0) pdf.addPage()
+    pdf.addImage(pageData, 'JPEG', margin, margin, imgWidth, sliceImgHeight)
+    renderedHeight += sliceHeight
+    pageIndex += 1
+  }
+  return pageIndex
 }
 
 /** 将长图画成多页 PDF 并下载 */
@@ -145,13 +285,12 @@ export async function downloadGuidePdf(guide?: DetailedTravelGuide): Promise<voi
       return
     }
 
-    ElMessage.info('正在生成 PDF，请稍候…')
-    let canvas: HTMLCanvasElement
+    ElMessage.info('正在生成 PDF，长行程将分段导出，请稍候…')
+    let canvases: HTMLCanvasElement[]
     try {
-      canvas = await captureGuideCanvas({ skipExternalImages: false })
+      canvases = await captureGuideSections({ skipExternalImages: false })
     } catch {
-      // 外部图片跨域时降级：去掉外部图再导出
-      canvas = await captureGuideCanvas({ skipExternalImages: true })
+      canvases = await captureGuideSections({ skipExternalImages: true })
     }
 
     const { jsPDF } = await import('jspdf')
@@ -162,50 +301,18 @@ export async function downloadGuidePdf(guide?: DetailedTravelGuide): Promise<voi
       compress: true,
     })
 
-    const pageWidth = pdf.internal.pageSize.getWidth()
-    const pageHeight = pdf.internal.pageSize.getHeight()
-    const margin = 8
-    const usableWidth = pageWidth - margin * 2
-    const usableHeight = pageHeight - margin * 2
-
-    const imgWidth = usableWidth
-    const imgHeight = (canvas.height * imgWidth) / canvas.width
-    const pageCanvasHeight = Math.floor((usableHeight / imgHeight) * canvas.height)
-
-    let renderedHeight = 0
     let pageIndex = 0
-    while (renderedHeight < canvas.height) {
-      const sliceHeight = Math.min(pageCanvasHeight, canvas.height - renderedHeight)
-      const pageCanvas = document.createElement('canvas')
-      pageCanvas.width = canvas.width
-      pageCanvas.height = sliceHeight
-      const ctx = pageCanvas.getContext('2d')
-      if (!ctx) throw new Error('无法创建画布')
-      ctx.fillStyle = '#ffffff'
-      ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height)
-      ctx.drawImage(
-        canvas,
-        0,
-        renderedHeight,
-        canvas.width,
-        sliceHeight,
-        0,
-        0,
-        canvas.width,
-        sliceHeight,
-      )
-
-      const pageData = pageCanvas.toDataURL('image/jpeg', 0.92)
-      const sliceImgHeight = (sliceHeight * imgWidth) / canvas.width
-      if (pageIndex > 0) pdf.addPage()
-      pdf.addImage(pageData, 'JPEG', margin, margin, imgWidth, sliceImgHeight)
-      renderedHeight += sliceHeight
-      pageIndex += 1
+    for (const canvas of canvases) {
+      pageIndex = appendCanvasToPdf(pdf, canvas, pageIndex)
+    }
+    if (pageIndex === 0) {
+      ElMessage.error('PDF 内容为空，请改用「打印攻略」另存为 PDF')
+      return
     }
 
     const title = guide?.title || document.querySelector('#travel-route-report h1')?.textContent || '旅游攻略'
     pdf.save(`${safeFileName(String(title))}.pdf`)
-    ElMessage.success('PDF 已下载')
+    ElMessage.success(`PDF 已下载（共 ${pageIndex} 页）`)
   } catch (error) {
     console.error(error)
     ElMessage.error('PDF 导出失败，请改用「打印攻略」另存为 PDF')

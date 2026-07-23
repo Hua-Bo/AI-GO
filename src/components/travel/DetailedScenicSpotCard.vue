@@ -7,8 +7,8 @@ defineProps<{ spot: DetailedScenicSpot }>()
 </script>
 
 <template>
-  <div class="spot-detail-card trip-scenic-card">
-    <div class="img-wrap trip-scenic-image">
+  <div class="spot-detail-card trip-scenic-card" :class="{ 'no-image': !spot.image }">
+    <div v-if="spot.image" class="img-wrap trip-scenic-image">
       <ScenicImage
         :src="spot.image"
         :alt="spot.name"
@@ -76,6 +76,7 @@ defineProps<{ spot: DetailedScenicSpot }>()
 
 <style scoped>
 .spot-detail-card { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 16px; padding: 16px; border: 1px solid #e5e7eb; border-radius: 26px; margin-bottom: 12px; background: #fff; box-shadow: 0 14px 36px rgba(15,23,42,0.055); transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease; }
+.spot-detail-card.no-image { grid-template-columns: 1fr; }
 .spot-detail-card:hover { transform: translateY(-2px); }
 .img-wrap { width: 170px; height: 126px; border-radius: 20px; overflow: hidden; background: linear-gradient(135deg, #f1f5f9, #e0f2fe); }
 .head-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }

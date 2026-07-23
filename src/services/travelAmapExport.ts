@@ -21,7 +21,10 @@ async function geocodePlace(query: string): Promise<{ lon: number; lat: number; 
   if (geocodeCache.has(q)) return geocodeCache.get(q) || null
   try {
     const url = `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=1&language=zh&format=json`
-    const res = await fetch(url)
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 6000)
+    const res = await fetch(url, { signal: controller.signal })
+    window.clearTimeout(timer)
     if (!res.ok) {
       geocodeCache.set(q, null)
       return null
@@ -85,6 +88,29 @@ export function collectAmapRoutePoints(guide: DetailedTravelGuide): AmapRoutePoi
     })
   }
 
+  if (guide.startPlan?.fromAddress || guide.startPlan?.firstStopCity) {
+    if (guide.startPlan.fromAddress) {
+      push({
+        day: 1,
+        name: guide.startPlan.fromAddress,
+        address: guide.startPlan.fromAddress,
+        city: '',
+        type: '出发地',
+        note: guide.startPlan.routeDescription || '',
+      })
+    }
+    if (guide.startPlan.firstStopCity) {
+      push({
+        day: 1,
+        name: guide.startPlan.firstStopCity,
+        address: guide.startPlan.firstStopCity,
+        city: guide.startPlan.firstStopCity,
+        type: '第一站',
+        note: guide.startPlan.suggestedStartTime || '',
+      })
+    }
+  }
+
   for (const day of guide.dailyPlans || []) {
     for (const spot of day.scenicSpots || []) {
       push({
@@ -111,6 +137,30 @@ export function collectAmapRoutePoints(guide: DetailedTravelGuide): AmapRoutePoi
       })
     }
 
+    // 细行程景点为空时，至少导出起止城市，保证高德功能可用
+    if (!(day.scenicSpots || []).length && !(day.timeline || []).some((t) => ['scenic', 'food', 'hotel', 'meeting'].includes(t.type))) {
+      if (day.startCity) {
+        push({
+          day: day.day,
+          name: day.startCity,
+          address: day.startCity,
+          city: day.startCity,
+          type: '出发城',
+          note: day.title || day.daySummary || '',
+        })
+      }
+      if (day.endCity && day.endCity !== day.startCity) {
+        push({
+          day: day.day,
+          name: day.endCity,
+          address: day.endCity,
+          city: day.endCity,
+          type: '到达城',
+          note: day.title || day.daySummary || '',
+        })
+      }
+    }
+
     if (day.hotelSuggestion?.needed && day.hotelSuggestion.city) {
       push({
         day: day.day,
@@ -128,19 +178,31 @@ export function collectAmapRoutePoints(guide: DetailedTravelGuide): AmapRoutePoi
 
 async function hydrateCoordinates(points: AmapRoutePoint[]): Promise<AmapRoutePoint[]> {
   const out: AmapRoutePoint[] = []
-  for (const p of points) {
-    const queries = [
-      `${p.city}${p.name}`,
-      p.name,
-      p.city,
-    ].filter(Boolean)
-    let geo: { lon: number; lat: number; label: string } | null = null
-    for (const q of queries) {
-      geo = await geocodePlace(q)
-      if (geo) break
+  const queue = [...points]
+  const concurrency = Math.min(4, queue.length || 1)
+
+  async function worker() {
+    while (queue.length) {
+      const p = queue.shift()
+      if (!p) break
+      const queries = [
+        `${p.city}${p.name}`,
+        p.name,
+        p.city,
+      ].filter(Boolean)
+      let geo: { lon: number; lat: number; label: string } | null = null
+      for (const q of queries) {
+        geo = await geocodePlace(q)
+        if (geo) break
+      }
+      out.push(geo ? { ...p, lon: geo.lon, lat: geo.lat } : { ...p })
     }
-    out.push(geo ? { ...p, lon: geo.lon, lat: geo.lat } : { ...p })
   }
+
+  await Promise.all(Array.from({ length: concurrency }, () => worker()))
+  // 保持原顺序
+  const order = new Map(points.map((p, i) => [`${p.day}-${p.name}-${p.city}`, i]))
+  out.sort((a, b) => (order.get(`${a.day}-${a.name}-${a.city}`) || 0) - (order.get(`${b.day}-${b.name}-${b.city}`) || 0))
   return out
 }
 

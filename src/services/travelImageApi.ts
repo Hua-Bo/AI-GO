@@ -364,18 +364,26 @@ export async function getScenicImage(
 
 export async function batchGetScenicImages(
   spots: Array<Pick<DetailedScenicSpot, 'province' | 'city' | 'name' | 'spotType' | 'imageKeyword'>>,
+  options?: {
+    concurrency?: number
+    onProgress?: (done: number, total: number, spot?: Pick<DetailedScenicSpot, 'name'>) => void
+  },
 ): Promise<Map<string, ScenicImageResult>> {
   const out = new Map<string, ScenicImageResult>()
   const queue = [...spots]
-  const workers = Array.from({ length: Math.min(3, queue.length || 1) }, async () => {
+  const total = spots.length
+  let done = 0
+  const concurrency = Math.max(1, Math.min(options?.concurrency || 3, queue.length || 1))
+  const workers = Array.from({ length: concurrency }, async () => {
     while (queue.length) {
       const spot = queue.shift()
       if (!spot) break
       const kw = spot.imageKeyword || buildScenicImageKeyword(spot)
       const result = await getScenicImage(spot)
       out.set(kw, result)
-      // 同时按城市+名称索引，避免 keyword 不一致对不上
       out.set(`${spot.city}-${spot.name}`, result)
+      done += 1
+      options?.onProgress?.(done, total, spot)
     }
   })
   await Promise.all(workers)
